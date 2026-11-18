@@ -93,7 +93,8 @@ async function fbLogin() {
 function fbLogout() {
   if (fbUnsubItems) fbUnsubItems();
   if (fbUnsubSettings) fbUnsubSettings();
-  fbUnsubItems = fbUnsubSettings = null;
+  if (fbUnsubRec) fbUnsubRec();
+  fbUnsubItems = fbUnsubSettings = fbUnsubRec = null;
   fbAuth.signOut();
 }
 
@@ -114,7 +115,7 @@ function fbHandleError(err) {
 
 // ---------- Spustenie: počúvanie zmien v databáze ----------
 // onItems(pole položiek), onSettings(objekt alebo null, ak ešte neexistuje)
-function fbStart({ onItems, onSettings }) {
+function fbStart({ onItems, onSettings, onRecurring }) {
   fbAuth.onAuthStateChanged(user => {
     if (fbUnsubItems) fbUnsubItems();
     if (fbUnsubSettings) fbUnsubSettings();
@@ -142,6 +143,8 @@ function fbStart({ onItems, onSettings }) {
       }
       else if (!doc.metadata.fromCache) onSettings(null); // naozaj neexistuje (overené na serveri)
     }, fbHandleError);
+
+    if (onRecurring) fbListenRecurring(onRecurring);
   });
 }
 
@@ -248,4 +251,85 @@ function fbDownloadBackup(items) {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// =====================================================================
+//  OPAKOVANÉ PLATBY
+//  Šablóny sú v dokumente settings/recurring: { list: [...], done: { "<id>_<YYYY-MM>": true } }
+//  Záznam sa vytvorí až v deň splatnosti (alebo pri najbližšom otvorení appky
+//  so správnym dátumom). Každá platba sa v mesiaci pridá iba raz – aj keď ju
+//  potom zmažeš alebo upravíš.
+// =====================================================================
+const FB_REC = fbDb.collection('settings').doc('recurring');
+let fbUnsubRec = null;
+
+function fbTodayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Dátum splatnosti v danom mesiaci (deň 31 v kratšom mesiaci = posledný deň)
+function recDueDate(rec, month) {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(y, m, 0).getDate();
+  const day = Math.min(Math.max(parseInt(rec.day, 10) || 1, 1), last);
+  return `${month}-${String(day).padStart(2, '0')}`;
+}
+
+function recNextMonth(month) {
+  let [y, m] = month.split('-').map(Number);
+  m++; if (m > 12) { m = 1; y++; }
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+// Platby, ktorým už nastal dátum a ešte neboli zapísané
+function recPending(list, done, items) {
+  const today = fbTodayStr();
+  const curMonth = today.substring(0, 7);
+  const existing = new Set((items || []).map(i => i.id));
+  const out = [];
+  (list || []).forEach(rec => {
+    if (rec.active === false || !rec.startMonth) return;
+    let month = rec.startMonth;
+    for (let guard = 0; guard < 36 && month <= curMonth; guard++, month = recNextMonth(month)) {
+      const key = `${rec.id}_${month}`;
+      const docId = `rec_${key}`;
+      const date = recDueDate(rec, month);
+      if (date > today || (done && done[key]) || existing.has(docId)) continue;
+      out.push({
+        key, docId,
+        item: {
+          account: 'Rodinka', date, month,
+          title: rec.title, cat: rec.cat, nature: rec.nature || 'Fixné',
+          type: rec.type || 'Výdavok', amount: Number(rec.amount) || 0,
+          recId: rec.id
+        }
+      });
+    }
+  });
+  return out;
+}
+
+function fbListenRecurring(onRec) {
+  if (fbUnsubRec) fbUnsubRec();
+  fbUnsubRec = FB_REC.onSnapshot(doc => {
+    if (!doc.exists && doc.metadata.fromCache) return;
+    const d = doc.exists ? doc.data() : {};
+    onRec(d.list || [], d.done || {});
+  }, err => console.error(err));
+}
+
+function fbSaveRecurringList(list) {
+  FB_REC.set({ list }, { merge: true }).catch(fbHandleWriteError);
+}
+
+// Zapíše čakajúce platby (pevné ID dokumentu = žiadne duplicity ani z dvoch zariadení)
+async function fbMaterializeRecurring(pending) {
+  if (!pending.length) return;
+  const done = {};
+  pending.forEach(p => { done[p.key] = true; });
+  const batch = fbDb.batch();
+  pending.forEach((p, idx) => batch.set(FB_ITEMS.doc(p.docId), { ...p.item, ts: Date.now() + idx }));
+  batch.set(FB_REC, { done }, { merge: true });
+  try { await batch.commit(); } catch (err) { console.error(err); }
 }

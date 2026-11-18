@@ -14,7 +14,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="firebase-db.js?v=2"></script>
+  <script src="firebase-db.js?v=3"></script>
   
   <style>
     :root {
@@ -236,6 +236,19 @@
     .backup-banner button { width: auto; background: #f59e0b; color: #fff; border: none; font-weight: 600; cursor: pointer; padding: 7px 14px; }
     .backup-banner .later { background: transparent; color: #92400e; padding: 7px 8px; }
 
+    /* --- Opakované platby --- */
+    .rec-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+      padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .rec-row:last-child { border-bottom: none; }
+    .rec-row.paused { opacity: .5; }
+    .rec-main strong { margin-right: 6px; }
+    .rec-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .rec-status { font-size: 12px; font-weight: 600; }
+    .rec-status.ok { color: var(--success); }
+    .rec-status.wait { color: #b45309; }
+    .rec-hint { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
+    #rec-list { margin-top: 12px; }
+
     /* --- Kategórie: klik na názov = premenovať --- */
     .cat-chip .cat-name { cursor: pointer; color: inherit; font-weight: 600; }
     .cat-chip .cat-name:hover { text-decoration: underline; color: inherit; }
@@ -306,6 +319,55 @@
       </div>
     </div>
     <div class="cat-chips" id="cat-chips-list"></div>
+  </div>
+
+  <div class="section">
+    <h3 class="section-title">
+      <span>Opakované platby <small style="font-weight:400;color:var(--muted);font-size:12px">(pridajú sa samy v deň splatnosti)</small></span>
+    </h3>
+    <form id="rec-form" class="form-grid" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));" onsubmit="saveRecurring(event)">
+      <input type="hidden" id="rec-id">
+      <div>
+        <label>Položka</label>
+        <input type="text" id="rec-title" placeholder="napr. Nájom" list="title-suggestions" autocomplete="off" required>
+      </div>
+      <div>
+        <label>Suma (€)</label>
+        <input type="number" step="0.01" inputmode="decimal" id="rec-amount" placeholder="0.00" required>
+      </div>
+      <div>
+        <label>Deň v mesiaci</label>
+        <input type="number" min="1" max="31" inputmode="numeric" id="rec-day" placeholder="1–31" required>
+      </div>
+      <div>
+        <label>Kategória</label>
+        <select id="rec-cat"></select>
+      </div>
+      <div>
+        <label>Povaha</label>
+        <select id="rec-nature">
+          <option value="Fixné">Fixné</option>
+          <option value="Variabilné">Variabilné</option>
+        </select>
+      </div>
+      <div>
+        <label>Typ</label>
+        <select id="rec-type">
+          <option value="Výdavok">Výdavok</option>
+          <option value="Príjem">Príjem</option>
+        </select>
+      </div>
+      <div>
+        <label>Prvýkrát v mesiaci</label>
+        <input type="month" id="rec-start" required>
+      </div>
+      <div style="display: flex; gap: 6px;">
+        <button class="btn-theme" type="submit" id="rec-submit">+ Pridať</button>
+        <button type="button" class="btn-cancel" id="rec-cancel" style="display: none;" onclick="resetRecForm()">Zrušiť</button>
+      </div>
+    </form>
+    <p class="rec-hint">Ak si platbu za tento mesiac už zadal ručne, nastav „Prvýkrát v mesiaci“ na ďalší mesiac.</p>
+    <div id="rec-list"></div>
   </div>
 
   <div class="section" id="add-section">
@@ -748,10 +810,14 @@
     saveSettings();
     updateCategoryUI();
     if (count > 0) fbRenameCategory(oldName, newName, items);
+    if (recList.some(r => r.cat === oldName)) {
+      recList = recList.map(r => r.cat === oldName ? { ...r, cat: newName } : r);
+      fbSaveRecurringList(recList);
+    }
   }
 
   function updateCategoryUI() {
-    const selects = [document.getElementById('in-cat'), document.getElementById('edit-cat'), document.getElementById('q-cat')];
+    const selects = [document.getElementById('in-cat'), document.getElementById('edit-cat'), document.getElementById('q-cat'), document.getElementById('rec-cat')];
     selects.forEach(select => {
       if (!select) return;
       select.innerHTML = '';
@@ -1003,6 +1069,163 @@
     fbAddItem(newItem);
   }
 
+  // ---------- OPAKOVANÉ PLATBY ----------
+  let recList = [];
+  let recDone = {};
+  let recLoaded = false;
+  let itemsLoaded = false;
+  const recSent = new Set(); // čo už bolo v tejto relácii odoslané na zápis
+
+  function runRecurring() {
+    if (!recLoaded || !itemsLoaded) return;
+    const pending = recPending(recList, recDone, items).filter(p => !recSent.has(p.key));
+    if (!pending.length) return;
+    pending.forEach(p => recSent.add(p.key));
+    fbMaterializeRecurring(pending);
+  }
+  // appka otvorená z pozadia (napr. na druhý deň) – skontrolovať znova
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) runRecurring(); });
+
+  function defaultRecStart(day) {
+    const today = fbTodayStr();
+    const cur = today.substring(0, 7);
+    if (!day) return cur;
+    return recDueDate({ day }, cur) >= today ? cur : recNextMonth(cur);
+  }
+
+  let recStartTouched = false;
+  document.getElementById('rec-start').addEventListener('input', () => { recStartTouched = true; });
+  document.getElementById('rec-day').addEventListener('input', e => {
+    if (!recStartTouched && !document.getElementById('rec-id').value) {
+      document.getElementById('rec-start').value = defaultRecStart(parseInt(e.target.value, 10));
+    }
+  });
+  document.getElementById('rec-title').addEventListener('input', () => {
+    const last = lastByTitle[document.getElementById('rec-title').value.trim().toLowerCase()];
+    if (!last || document.getElementById('rec-id').value) return;
+    ensureCatOption(document.getElementById('rec-cat'), last.cat);
+    if (last.nature) document.getElementById('rec-nature').value = last.nature;
+    if (last.type) document.getElementById('rec-type').value = last.type;
+    if (!document.getElementById('rec-amount').value) document.getElementById('rec-amount').value = last.amount;
+  });
+
+  function resetRecForm() {
+    document.getElementById('rec-form').reset();
+    document.getElementById('rec-id').value = '';
+    document.getElementById('rec-nature').value = 'Fixné';
+    document.getElementById('rec-start').value = defaultRecStart(null);
+    document.getElementById('rec-submit').textContent = '+ Pridať';
+    document.getElementById('rec-cancel').style.display = 'none';
+    recStartTouched = false;
+  }
+
+  function saveRecurring(e) {
+    e.preventDefault();
+    const id = document.getElementById('rec-id').value;
+    const day = parseInt(document.getElementById('rec-day').value, 10);
+    const startMonth = document.getElementById('rec-start').value;
+    if (!(day >= 1 && day <= 31)) { alert('Deň musí byť od 1 do 31.'); return; }
+    if (!/^\d{4}-\d{2}$/.test(startMonth)) { alert('Zadaj mesiac v tvare RRRR-MM, napr. 2026-12.'); return; }
+    const rec = {
+      id: id || ('r' + Date.now().toString(36)),
+      title: document.getElementById('rec-title').value.trim(),
+      amount: parseFloat(String(document.getElementById('rec-amount').value).replace(',', '.')) || 0,
+      day,
+      cat: document.getElementById('rec-cat').value,
+      nature: document.getElementById('rec-nature').value,
+      type: document.getElementById('rec-type').value,
+      startMonth,
+      active: true
+    };
+    if (id) {
+      const old = recList.find(r => r.id === id);
+      if (old) rec.active = old.active !== false;
+      recList = recList.map(r => r.id === id ? rec : r);
+    } else {
+      recList = recList.concat(rec);
+    }
+    const firstDue = recDueDate(rec, startMonth);
+    fbSaveRecurringList(recList);
+    resetRecForm();
+    renderRecList();
+    if (!id && firstDue <= fbTodayStr()) {
+      alert(`Platba „${rec.title}“ bola splatná ${formatSKDate(firstDue)} – hneď sa zapíše.`);
+    }
+  }
+
+  function editRecurring(id) {
+    const rec = recList.find(r => r.id === id);
+    if (!rec) return;
+    document.getElementById('rec-id').value = rec.id;
+    document.getElementById('rec-title').value = rec.title;
+    document.getElementById('rec-amount').value = rec.amount;
+    document.getElementById('rec-day').value = rec.day;
+    ensureCatOption(document.getElementById('rec-cat'), rec.cat);
+    document.getElementById('rec-nature').value = rec.nature || 'Fixné';
+    document.getElementById('rec-type').value = rec.type || 'Výdavok';
+    document.getElementById('rec-start').value = rec.startMonth;
+    document.getElementById('rec-submit').textContent = 'Uložiť';
+    document.getElementById('rec-cancel').style.display = '';
+    document.getElementById('rec-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function toggleRecurring(id) {
+    recList = recList.map(r => r.id === id ? { ...r, active: r.active === false } : r);
+    fbSaveRecurringList(recList);
+    renderRecList();
+  }
+
+  function deleteRecurring(id) {
+    const rec = recList.find(r => r.id === id);
+    if (!rec) return;
+    if (!confirm(`Zmazať opakovanú platbu „${rec.title}“? Už zapísané záznamy ostanú.`)) return;
+    recList = recList.filter(r => r.id !== id);
+    fbSaveRecurringList(recList);
+    renderRecList();
+  }
+
+  function renderRecList() {
+    const box = document.getElementById('rec-list');
+    if (!recList.length) {
+      box.innerHTML = '<div class="rec-meta" style="padding: 6px 0;">Zatiaľ žiadne opakované platby.</div>';
+      return;
+    }
+    const today = fbTodayStr();
+    const cur = today.substring(0, 7);
+    const sorted = recList.slice().sort((a, b) => (a.day - b.day) || String(a.title).localeCompare(String(b.title)));
+    box.innerHTML = sorted.map(r => {
+      const isInc = r.type === 'Príjem';
+      let status = '';
+      if (r.active === false) {
+        status = '<span class="rec-status">⏸ pozastavená</span>';
+      } else if (r.startMonth > cur) {
+        status = `<span class="rec-status wait">začne ${formatSKDate(recDueDate(r, r.startMonth))}</span>`;
+      } else {
+        const due = recDueDate(r, cur);
+        const key = `${r.id}_${cur}`;
+        const done = recDone[key] || items.some(i => i.id === `rec_${key}`);
+        status = done
+          ? '<span class="rec-status ok">✓ tento mesiac zapísaná</span>'
+          : (due > today
+              ? `<span class="rec-status wait">príde ${formatSKDate(due)}</span>`
+              : '<span class="rec-status wait">zapisuje sa…</span>');
+      }
+      return `
+        <div class="rec-row ${r.active === false ? 'paused' : ''}">
+          <div class="rec-main">
+            <div><strong>${esc(r.title)}</strong>
+              <span style="font-weight:600; color:${isInc ? 'var(--success)' : 'var(--danger)'}">${isInc ? '+' : '-'}${fmt(Number(r.amount))}</span></div>
+            <div class="rec-meta">každý ${esc(r.day)}. v mesiaci · ${esc(r.cat)} · ${esc(r.nature)} · ${status}</div>
+          </div>
+          <div style="white-space: nowrap;">
+            <button class="action-btn edit-btn" onclick="editRecurring('${esc(r.id)}')">Upraviť</button>
+            <button class="action-btn edit-btn" onclick="toggleRecurring('${esc(r.id)}')">${r.active === false ? 'Zapnúť' : 'Pozastaviť'}</button>
+            <button class="action-btn del-btn" onclick="deleteRecurring('${esc(r.id)}')">Zmazať</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
   // ---------- ZÁLOHA + PRIPOMIENKA ----------
   const BACKUP_EVERY_DAYS = 30;
   function doBackup() {
@@ -1184,6 +1407,8 @@
   updateCategoryUI();
   updateSuggestions();
   updateInitBalanceInput();
+  resetRecForm();
+  renderRecList();
   render();
 
   // Napojenie na Firebase – položky a nastavenia sa aktualizujú automaticky
@@ -1197,6 +1422,16 @@
       updateInitBalanceInput();
       render();
       if (settingsLoaded) checkBackupReminder();
+      itemsLoaded = true;
+      runRecurring();
+      renderRecList();
+    },
+    onRecurring(list, done) {
+      recList = list;
+      recDone = done;
+      recLoaded = true;
+      renderRecList();
+      runRecurring();
     },
     onSettings(data) {
       if (data) {

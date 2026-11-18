@@ -14,7 +14,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="firebase-db.js?v=2"></script>
+  <script src="firebase-db.js?v=3"></script>
   
   <style>
     :root {
@@ -506,13 +506,29 @@
   updateFilters();
   render();
 
+  // Opakované platby, ktorým už nastal dátum, sa započítajú hneď –
+  // aj keď ich hlavná appka ešte nezapísala (zapíšu sa pri jej otvorení).
+  let realItems = items;
+  let recList = [];
+  let recDone = {};
+  function mergeItems() {
+    const virtual = recPending(recList, recDone, realItems).map(p => ({ id: p.docId, ...p.item, ts: Date.now() }));
+    items = realItems.concat(virtual);
+    buildMonthOptions(items, currentMonth);
+    render();
+  }
+
   // Napojenie na Firebase – údaje sa aktualizujú automaticky
   fbStart({
     onItems(arr) {
-      items = arr;
-      localStorage.setItem('rodinka_items_fb', JSON.stringify(items));
-      buildMonthOptions(items, currentMonth);
-      render();
+      realItems = arr;
+      localStorage.setItem('rodinka_items_fb', JSON.stringify(realItems));
+      mergeItems();
+    },
+    onRecurring(list, done) {
+      recList = list;
+      recDone = done;
+      mergeItems();
     },
     onSettings(data) {
       if (data && data.balances) {
