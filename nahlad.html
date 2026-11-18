@@ -14,7 +14,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="firebase-db.js?v=1"></script>
+  <script src="firebase-db.js?v=2"></script>
   
   <style>
     :root {
@@ -146,30 +146,6 @@
       </button>
       <div class="month-selector">
         <select id="selected-month" onchange="changeMonth()">
-          <option value="2026-01">Január 2026</option>
-          <option value="2026-02">Február 2026</option>
-          <option value="2026-03">Marec 2026</option>
-          <option value="2026-04">Apríl 2026</option>
-          <option value="2026-05">Máj 2026</option>
-          <option value="2026-06">Jún 2026</option>
-          <option value="2026-07">Júl 2026</option>
-          <option value="2026-08">August 2026</option>
-          <option value="2026-09">September 2026</option>
-          <option value="2026-10">Október 2026</option>
-          <option value="2026-11" selected>November 2026</option>
-          <option value="2026-12">December 2026</option>
-          <option value="2027-01">Január 2027</option>
-          <option value="2027-02">Február 2027</option>
-          <option value="2027-03">Marec 2027</option>
-          <option value="2027-04">Apríl 2027</option>
-          <option value="2027-05">Máj 2027</option>
-          <option value="2027-06">Jún 2027</option>
-          <option value="2027-07">Júl 2027</option>
-          <option value="2027-08">August 2027</option>
-          <option value="2027-09">September 2027</option>
-          <option value="2027-10">Október 2027</option>
-          <option value="2027-11">November 2027</option>
-          <option value="2027-12">December 2027</option>
         </select>
       </div>
     </div>
@@ -230,6 +206,39 @@
 </div>
 
 <script>
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // Zoznam mesiacov sa tvorí automaticky: od prvého záznamu (min. jan 2026) do 12 mesiacov dopredu
+  const MONTH_NAMES = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August', 'September', 'Október', 'November', 'December'];
+  function buildMonthOptions(list, keep) {
+    const sel = document.getElementById('selected-month');
+    const nowD = new Date();
+    const cur = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+    const endD = new Date(nowD.getFullYear(), nowD.getMonth() + 12, 1);
+    let start = '2026-01';
+    let end = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, '0')}`;
+    (list || []).forEach(i => {
+      const m = i.month || String(i.date || '').substring(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(m)) return;
+      if (m < start) start = m;
+      if (m > end) end = m;
+    });
+    let [y, mo] = start.split('-').map(Number);
+    let html = '';
+    for (let guard = 0; guard < 600; guard++) {
+      const v = `${y}-${String(mo).padStart(2, '0')}`;
+      html += `<option value="${v}">${MONTH_NAMES[mo - 1]} ${y}</option>`;
+      if (v === end) break;
+      mo++; if (mo > 12) { mo = 1; y++; }
+    }
+    sel.innerHTML = html;
+    sel.value = keep || cur;
+    if (!sel.value) sel.value = cur;
+  }
+  buildMonthOptions(JSON.parse(localStorage.getItem('rodinka_items_fb')) || [], null);
 
   // Vždy primárne nastaviť aktuálny reálny kalendárny mesiac
   const now = new Date();
@@ -472,10 +481,10 @@
       const isInc = i.type === 'Príjem';
       tr.innerHTML = `
         <td>${formatSKDate(i.date)}</td>
-        <td><strong>${i.title}</strong></td>
-        <td>${i.cat}</td>
-        <td>${i.nature}</td>
-        <td><span class="tag ${isInc ? 'tag-income' : 'tag-expense'}">${i.type}</span></td>
+        <td><strong>${esc(i.title)}</strong></td>
+        <td>${esc(i.cat)}</td>
+        <td>${esc(i.nature)}</td>
+        <td><span class="tag ${isInc ? 'tag-income' : 'tag-expense'}">${esc(i.type)}</span></td>
         <td style="font-weight:600; color:${isInc ? 'var(--success)' : 'var(--danger)'}">
           ${isInc ? '+' : '-'}${fmt(i.amount)}
         </td>
@@ -502,6 +511,7 @@
     onItems(arr) {
       items = arr;
       localStorage.setItem('rodinka_items_fb', JSON.stringify(items));
+      buildMonthOptions(items, currentMonth);
       render();
     },
     onSettings(data) {

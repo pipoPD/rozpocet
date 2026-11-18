@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rozpocet-v8';
+const CACHE_NAME = 'rozpocet-v9';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

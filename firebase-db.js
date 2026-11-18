@@ -26,6 +26,7 @@ const FB_SETTINGS = fbDb.collection('settings').doc('rodinka');
 
 let fbUnsubItems = null;
 let fbUnsubSettings = null;
+let fbLastBackup = null; // čas poslednej zálohy (ms), uložený online v nastaveniach
 
 // ---------- Prihlasovacia obrazovka ----------
 (function injectLoginUI() {
@@ -135,7 +136,10 @@ function fbStart({ onItems, onSettings }) {
     }, fbHandleError);
 
     fbUnsubSettings = FB_SETTINGS.onSnapshot(doc => {
-      if (doc.exists) onSettings(doc.data());
+      if (doc.exists) {
+        fbLastBackup = doc.data().lastBackup || null;
+        onSettings(doc.data());
+      }
       else if (!doc.metadata.fromCache) onSettings(null); // naozaj neexistuje (overené na serveri)
     }, fbHandleError);
   });
@@ -172,7 +176,26 @@ function fbDeleteItem(id) {
 }
 
 function fbSaveSettings(categories, balances) {
-  FB_SETTINGS.set({ categories, balances }).catch(fbHandleWriteError);
+  FB_SETTINGS.set({ categories, balances, lastBackup: fbLastBackup }).catch(fbHandleWriteError);
+}
+
+function fbMarkBackup() {
+  fbLastBackup = Date.now();
+  FB_SETTINGS.set({ lastBackup: fbLastBackup }, { merge: true }).catch(fbHandleWriteError);
+}
+
+// Premenovanie kategórie vo všetkých záznamoch
+async function fbRenameCategory(oldName, newName, items) {
+  const ids = items.filter(i => i.cat === oldName).map(i => i.id);
+  try {
+    for (let i = 0; i < ids.length; i += 400) {
+      const batch = fbDb.batch();
+      ids.slice(i, i + 400).forEach(id => batch.update(FB_ITEMS.doc(id), { cat: newName }));
+      await batch.commit();
+    }
+  } catch (err) {
+    fbHandleWriteError(err);
+  }
 }
 
 // ---------- Jednorazový prenos z Google Tabuľky ----------

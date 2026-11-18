@@ -14,7 +14,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-  <script src="firebase-db.js?v=1"></script>
+  <script src="firebase-db.js?v=2"></script>
   
   <style>
     :root {
@@ -209,6 +209,36 @@
       color: var(--danger);
     }
 
+
+    /* --- Rýchle pridanie (mobil) --- */
+    .fab { display: none; position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom)); width: 60px; height: 60px;
+      border-radius: 50%; border: none; background: var(--theme-primary); color: #fff; font-size: 32px; line-height: 1;
+      align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(124,58,237,.4); cursor: pointer; z-index: 900; padding: 0; }
+    .type-toggle { display: flex; gap: 6px; background: #e2e8f0; padding: 4px; border-radius: 10px; }
+    .type-toggle button { border: none; background: transparent; font-weight: 600; cursor: pointer; padding: 10px; border-radius: 8px; }
+    .type-toggle button.active.exp { background: var(--danger); color: #fff; }
+    .type-toggle button.active.inc { background: var(--success); color: #fff; }
+    .big-amount { font-size: 26px !important; font-weight: 700; text-align: center; padding: 12px !important; }
+    #quick-modal details summary { cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 600; }
+    #quick-modal .modal { max-height: calc(100vh - 32px); overflow-y: auto; }
+    @media (max-width: 700px) {
+      #add-section { display: none; }
+      .fab { display: flex; }
+      .container { padding-bottom: 90px; }
+      #quick-modal { align-items: flex-end; }
+      #quick-modal .modal { margin: 0; border-radius: 16px 16px 0 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+    }
+
+    /* --- Pripomienka zálohy --- */
+    .backup-banner { display: none; background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; border-radius: 10px;
+      padding: 10px 14px; margin-bottom: 16px; font-size: 14px; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .backup-banner.active { display: flex; }
+    .backup-banner button { width: auto; background: #f59e0b; color: #fff; border: none; font-weight: 600; cursor: pointer; padding: 7px 14px; }
+    .backup-banner .later { background: transparent; color: #92400e; padding: 7px 8px; }
+
+    /* --- Kategórie: klik na názov = premenovať --- */
+    .cat-chip .cat-name { cursor: pointer; color: inherit; font-weight: 600; }
+    .cat-chip .cat-name:hover { text-decoration: underline; color: inherit; }
   </style>
 </head>
 <body>
@@ -223,7 +253,7 @@
       <button class="btn-sync" id="btn-import" style="display:none" onclick="importFromSheet()" title="Jednorazovo preniesť záznamy z Google Tabuľky">
         &#x21e9; Preniesť zo Sheetu
       </button>
-      <button class="btn-sync" onclick="fbDownloadBackup(items)" title="Stiahnuť všetky záznamy do súboru (Excel)">
+      <button class="btn-sync" onclick="doBackup()" title="Stiahnuť všetky záznamy do súboru (Excel)">
         &#x2b07; Záloha
       </button>
       <button class="btn-sync" onclick="if (confirm('Odhlásiť sa?')) fbLogout()" title="Odhlásiť">
@@ -231,33 +261,17 @@
       </button>
       <div class="month-selector">
         <select id="selected-month" onchange="changeMonth()">
-          <option value="2026-01">Január 2026</option>
-          <option value="2026-02">Február 2026</option>
-          <option value="2026-03">Marec 2026</option>
-          <option value="2026-04">Apríl 2026</option>
-          <option value="2026-05">Máj 2026</option>
-          <option value="2026-06">Jún 2026</option>
-          <option value="2026-07">Júl 2026</option>
-          <option value="2026-08">August 2026</option>
-          <option value="2026-09">September 2026</option>
-          <option value="2026-10">Október 2026</option>
-          <option value="2026-11" selected>November 2026</option>
-          <option value="2026-12">December 2026</option>
-          <option value="2027-01">Január 2027</option>
-          <option value="2027-02">Február 2027</option>
-          <option value="2027-03">Marec 2027</option>
-          <option value="2027-04">Apríl 2027</option>
-          <option value="2027-05">Máj 2027</option>
-          <option value="2027-06">Jún 2027</option>
-          <option value="2027-07">Júl 2027</option>
-          <option value="2027-08">August 2027</option>
-          <option value="2027-09">September 2027</option>
-          <option value="2027-10">Október 2027</option>
-          <option value="2027-11">November 2027</option>
-          <option value="2027-12">December 2027</option>
         </select>
       </div>
     </div>
+  </div>
+
+  <div class="backup-banner" id="backup-banner">
+    <span id="backup-banner-text">Odporúčame stiahnuť zálohu rozpočtu.</span>
+    <span>
+      <button type="button" class="later" onclick="hideBackupBanner()">Neskôr</button>
+      <button type="button" onclick="doBackup()">&#x2b07; Stiahnuť zálohu</button>
+    </span>
   </div>
 
   <div class="grid-summary">
@@ -281,7 +295,7 @@
 
   <div class="section">
     <h3 class="section-title">
-      <span>Kategórie</span>
+      <span>Kategórie <small style="font-weight:400;color:var(--muted);font-size:12px">(klik na názov = premenovať)</small></span>
       <span class="account-badge-header">Rodinka</span>
     </h3>
     <div>
@@ -294,7 +308,7 @@
     <div class="cat-chips" id="cat-chips-list"></div>
   </div>
 
-  <div class="section">
+  <div class="section" id="add-section">
     <h3 class="section-title">
       <span>Pridať nový záznam</span>
       <span class="account-badge-header">Rodinka</span>
@@ -306,7 +320,7 @@
       </div>
       <div>
         <label>Položka</label>
-        <input type="text" id="in-title" placeholder="napr. Nákup" required>
+        <input type="text" id="in-title" placeholder="napr. Nákup" list="title-suggestions" autocomplete="off" required>
       </div>
       <div>
         <label>Kategória</label>
@@ -377,6 +391,56 @@
   </div>
 </div>
 
+<datalist id="title-suggestions"></datalist>
+
+<button type="button" class="fab" id="fab-add" onclick="openQuick()" title="Pridať záznam">+</button>
+
+<div class="modal-backdrop" id="quick-modal">
+  <div class="modal">
+    <h3>Nový záznam</h3>
+    <form id="quick-form" onsubmit="saveQuick(event)">
+      <div class="modal-fields">
+        <div class="type-toggle">
+          <button type="button" id="q-type-exp" class="exp active" onclick="setQuickType('Výdavok')">Výdavok</button>
+          <button type="button" id="q-type-inc" class="inc" onclick="setQuickType('Príjem')">Príjem</button>
+        </div>
+        <div>
+          <label>Suma (€)</label>
+          <input type="number" step="0.01" inputmode="decimal" id="q-amount" class="big-amount" placeholder="0,00" required>
+        </div>
+        <div>
+          <label>Položka</label>
+          <input type="text" id="q-title" list="title-suggestions" autocomplete="off" placeholder="napr. Lidl" required>
+        </div>
+        <div>
+          <label>Kategória</label>
+          <select id="q-cat"></select>
+        </div>
+        <details>
+          <summary>Viac (dátum, povaha)</summary>
+          <div class="modal-fields" style="margin-top: 10px;">
+            <div>
+              <label>Dátum</label>
+              <input type="date" id="q-date" required>
+            </div>
+            <div>
+              <label>Povaha</label>
+              <select id="q-nature">
+                <option value="Fixné">Fixné</option>
+                <option value="Variabilné" selected>Variabilné</option>
+              </select>
+            </div>
+          </div>
+        </details>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeQuick()" style="width:auto; padding: 9px 20px;">Zrušiť</button>
+        <button class="btn-theme" type="submit" style="width: auto; padding: 9px 24px;">+ Pridať</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="edit-modal">
   <div class="modal">
     <h3>Upraviť záznam</h3>
@@ -389,7 +453,7 @@
         </div>
         <div>
           <label>Položka</label>
-          <input type="text" id="edit-title" required>
+          <input type="text" id="edit-title" list="title-suggestions" autocomplete="off" required>
         </div>
         <div>
           <label>Kategória</label>
@@ -425,6 +489,40 @@
 <script>
   // Pôvodná Google Tabuľka – používa sa už len na jednorazový prenos dát do Firebase
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby3oopQUoiGNfguMbTl3wOISPRaGNj2kHxgvuKAQzcCbpKUAr-SzFUyT1ncga2tBmLJ4A/exec";
+
+  // Bezpečné vloženie textu do HTML
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // Zoznam mesiacov sa tvorí automaticky: od prvého záznamu (min. jan 2026) do 12 mesiacov dopredu
+  const MONTH_NAMES = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August', 'September', 'Október', 'November', 'December'];
+  function buildMonthOptions(list, keep) {
+    const sel = document.getElementById('selected-month');
+    const nowD = new Date();
+    const cur = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+    const endD = new Date(nowD.getFullYear(), nowD.getMonth() + 12, 1);
+    let start = '2026-01';
+    let end = `${endD.getFullYear()}-${String(endD.getMonth() + 1).padStart(2, '0')}`;
+    (list || []).forEach(i => {
+      const m = i.month || String(i.date || '').substring(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(m)) return;
+      if (m < start) start = m;
+      if (m > end) end = m;
+    });
+    let [y, mo] = start.split('-').map(Number);
+    let html = '';
+    for (let guard = 0; guard < 600; guard++) {
+      const v = `${y}-${String(mo).padStart(2, '0')}`;
+      html += `<option value="${v}">${MONTH_NAMES[mo - 1]} ${y}</option>`;
+      if (v === end) break;
+      mo++; if (mo > 12) { mo = 1; y++; }
+    }
+    sel.innerHTML = html;
+    sel.value = keep || cur;
+    if (!sel.value) sel.value = cur;
+  }
+  buildMonthOptions(JSON.parse(localStorage.getItem('rodinka_items_fb')) || [], null);
 
   // Vždy primárne nastaviť aktuálny reálny kalendárny mesiac
   const now = new Date();
@@ -618,18 +716,42 @@
     }
   }
 
-  function removeCategory(cat) {
+  function removeCategory(idx) {
+    const cat = categories[idx];
+    if (cat === undefined) return;
     if (categories.length <= 1) {
       alert('Musí zostať aspoň jedna kategória.');
       return;
     }
+    if (!confirm(`Odstrániť kategóriu „${cat}“? (Existujúce záznamy ostanú nezmenené.)`)) return;
     categories = categories.filter(c => c !== cat);
     saveSettings();
     updateCategoryUI();
   }
 
+  // Premenovanie kategórie – zmení sa aj vo všetkých existujúcich záznamoch
+  function renameCategory(idx) {
+    const oldName = categories[idx];
+    if (oldName === undefined) return;
+    const input = prompt(`Nový názov pre kategóriu „${oldName}“:`, oldName);
+    if (input === null) return;
+    const newName = input.trim();
+    if (!newName || newName === oldName) return;
+
+    const count = items.filter(i => i.cat === oldName).length;
+    if (categories.includes(newName)) {
+      if (!confirm(`Kategória „${newName}“ už existuje. Zlúčiť „${oldName}“ do nej? (${count} záznamov)`)) return;
+      categories = categories.filter(c => c !== oldName);
+    } else {
+      categories[idx] = newName;
+    }
+    saveSettings();
+    updateCategoryUI();
+    if (count > 0) fbRenameCategory(oldName, newName, items);
+  }
+
   function updateCategoryUI() {
-    const selects = [document.getElementById('in-cat'), document.getElementById('edit-cat')];
+    const selects = [document.getElementById('in-cat'), document.getElementById('edit-cat'), document.getElementById('q-cat')];
     selects.forEach(select => {
       if (!select) return;
       select.innerHTML = '';
@@ -643,10 +765,10 @@
 
     const chipList = document.getElementById('cat-chips-list');
     chipList.innerHTML = '';
-    categories.forEach(c => {
+    categories.forEach((c, idx) => {
       const chip = document.createElement('div');
       chip.className = 'cat-chip';
-      chip.innerHTML = `${c} <span onclick="removeCategory('${c}')" title="Odstrániť">&times;</span>`;
+      chip.innerHTML = `<span class="cat-name" onclick="renameCategory(${idx})" title="Premenovať">${esc(c)}</span> <span onclick="removeCategory(${idx})" title="Odstrániť">&times;</span>`;
       chipList.appendChild(chip);
     });
 
@@ -782,6 +904,129 @@
     }
   }
 
+  // ---------- NAŠEPKÁVANIE POLOŽIEK ----------
+  let lastByTitle = {};
+  function updateSuggestions() {
+    lastByTitle = {};
+    const freq = {};
+    items.slice()
+      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || ((a.ts || 0) - (b.ts || 0)))
+      .forEach(i => {
+        const t = String(i.title || '').trim();
+        if (!t) return;
+        const k = t.toLowerCase();
+        lastByTitle[k] = i; // posledný (najnovší) záznam s týmto názvom
+        freq[k] = freq[k] || { title: t, n: 0 };
+        freq[k].title = t;
+        freq[k].n++;
+      });
+    const top = Object.values(freq).sort((a, b) => b.n - a.n).slice(0, 300);
+    document.getElementById('title-suggestions').innerHTML = top.map(f => `<option value="${esc(f.title)}"></option>`).join('');
+  }
+
+  function ensureCatOption(select, cat) {
+    if (!cat) return;
+    if (![...select.options].some(o => o.value === cat)) {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      select.appendChild(opt);
+    }
+    select.value = cat;
+  }
+
+  // Po výbere známej položky doplní kategóriu, povahu a typ podľa posledného zadania
+  function fillFromHistory(prefix) {
+    const titleEl = document.getElementById(prefix + '-title');
+    const last = lastByTitle[titleEl.value.trim().toLowerCase()];
+    const amountEl = document.getElementById(prefix + '-amount');
+    if (!last) {
+      amountEl.placeholder = prefix === 'q' ? '0,00' : '0.00';
+      return;
+    }
+    ensureCatOption(document.getElementById(prefix + '-cat'), last.cat);
+    if (last.nature) document.getElementById(prefix + '-nature').value = last.nature;
+    if (prefix === 'q') setQuickType(last.type || 'Výdavok');
+    else if (last.type) document.getElementById('in-type').value = last.type;
+    amountEl.placeholder = 'naposledy ' + fmt(last.amount);
+  }
+  document.getElementById('in-title').addEventListener('input', () => fillFromHistory('in'));
+  document.getElementById('q-title').addEventListener('input', () => fillFromHistory('q'));
+
+  // ---------- RÝCHLE PRIDANIE (MOBIL) ----------
+  let quickType = 'Výdavok';
+  function setQuickType(t) {
+    quickType = t;
+    document.getElementById('q-type-exp').classList.toggle('active', t === 'Výdavok');
+    document.getElementById('q-type-inc').classList.toggle('active', t === 'Príjem');
+  }
+
+  function openQuick() {
+    document.getElementById('quick-form').reset();
+    setQuickType('Výdavok');
+    document.getElementById('q-nature').value = 'Variabilné';
+    document.getElementById('q-amount').placeholder = '0,00';
+    const nowD = new Date();
+    const todayMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+    document.getElementById('q-date').value = currentMonth === todayMonth
+      ? `${todayMonth}-${String(nowD.getDate()).padStart(2, '0')}`
+      : currentMonth + '-01';
+    document.getElementById('quick-modal').classList.add('active');
+    setTimeout(() => document.getElementById('q-amount').focus(), 50);
+  }
+
+  function closeQuick() {
+    document.getElementById('quick-modal').classList.remove('active');
+  }
+
+  function saveQuick(e) {
+    e.preventDefault();
+    const dateVal = document.getElementById('q-date').value;
+    const itemMonth = dateVal.substring(0, 7);
+    const newItem = {
+      account: 'Rodinka',
+      month: itemMonth,
+      date: dateVal,
+      title: document.getElementById('q-title').value.trim(),
+      cat: document.getElementById('q-cat').value,
+      nature: document.getElementById('q-nature').value,
+      type: quickType,
+      amount: parseFloat(String(document.getElementById('q-amount').value).replace(',', '.'))
+    };
+    if (isNaN(newItem.amount)) { alert('Zadaj sumu.'); return; }
+    closeQuick();
+    if (itemMonth !== currentMonth) {
+      document.getElementById('selected-month').value = itemMonth;
+      currentMonth = itemMonth;
+      updateInitBalanceInput();
+    }
+    fbAddItem(newItem);
+  }
+
+  // ---------- ZÁLOHA + PRIPOMIENKA ----------
+  const BACKUP_EVERY_DAYS = 30;
+  function doBackup() {
+    if (!items.length) { alert('Zatiaľ nie sú žiadne záznamy na zálohovanie.'); return; }
+    fbDownloadBackup(items);
+    fbMarkBackup();
+    hideBackupBanner();
+  }
+
+  function hideBackupBanner() {
+    document.getElementById('backup-banner').classList.remove('active');
+  }
+
+  function checkBackupReminder() {
+    if (!items.length) return;
+    const last = fbLastBackup;
+    const days = last ? Math.floor((Date.now() - last) / 86400000) : null;
+    if (days !== null && days < BACKUP_EVERY_DAYS) { hideBackupBanner(); return; }
+    document.getElementById('backup-banner-text').textContent = days === null
+      ? '💾 Ešte si si nestiahol zálohu rozpočtu.'
+      : `💾 Posledná záloha bola pred ${days} dňami. Odporúčame stiahnuť novú.`;
+    document.getElementById('backup-banner').classList.add('active');
+  }
+
   function addRecord(e) {
     e.preventDefault();
     const dateVal = document.getElementById('in-date').value;
@@ -827,7 +1072,7 @@
     document.getElementById('edit-id').value = item.id;
     document.getElementById('edit-date').value = item.date;
     document.getElementById('edit-title').value = item.title;
-    document.getElementById('edit-cat').value = item.cat;
+    ensureCatOption(document.getElementById('edit-cat'), item.cat);
     document.getElementById('edit-nature').value = item.nature;
     document.getElementById('edit-type').value = item.type;
     document.getElementById('edit-amount').value = item.amount;
@@ -910,10 +1155,10 @@
       const isInc = i.type === 'Príjem';
       tr.innerHTML = `
         <td>${formatSKDate(i.date)}</td>
-        <td><strong>${i.title}</strong></td>
-        <td>${i.cat}</td>
-        <td>${i.nature}</td>
-        <td><span class="tag ${isInc ? 'tag-income' : 'tag-expense'}">${i.type}</span></td>
+        <td><strong>${esc(i.title)}</strong></td>
+        <td>${esc(i.cat)}</td>
+        <td>${esc(i.nature)}</td>
+        <td><span class="tag ${isInc ? 'tag-income' : 'tag-expense'}">${esc(i.type)}</span></td>
         <td style="font-weight:600; color:${isInc ? 'var(--success)' : 'var(--danger)'}">
           ${isInc ? '+' : '-'}${fmt(i.amount)}
         </td>
@@ -937,6 +1182,7 @@
 
   setDefaultDateForMonth();
   updateCategoryUI();
+  updateSuggestions();
   updateInitBalanceInput();
   render();
 
@@ -946,8 +1192,11 @@
       items = arr;
       localStorage.setItem('rodinka_items_fb', JSON.stringify(items));
       document.getElementById('btn-import').style.display = items.length === 0 ? '' : 'none';
+      buildMonthOptions(items, currentMonth);
+      updateSuggestions();
       updateInitBalanceInput();
       render();
+      if (settingsLoaded) checkBackupReminder();
     },
     onSettings(data) {
       if (data) {
@@ -959,6 +1208,7 @@
         updateInitBalanceInput();
         render();
         settingsLoaded = true;
+        checkBackupReminder();
       } else if (!settingsLoaded) {
         // prvé spustenie – uložiť súčasné kategórie a zostatky do databázy
         settingsLoaded = true;
