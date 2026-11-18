@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Mesačný rozpočet - Rodinka</title>
+  
+  <link rel="manifest" href="manifest.json?v=4">
+  <meta name="theme-color" content="#7c3aed">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" href="icon-512.png">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <style>
+    :root {
+      --bg: #faf7fd;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --danger: #dc2626;
+
+      --theme-primary: #7c3aed;
+      --theme-light: #f5f3ff;
+      --theme-border: #ddd6fe;
+      --theme-badge: #ede9fe;
+      --theme-badge-text: #5b21b6;
+    }
+
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    
+    html, body {
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 950px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+    h1 { margin: 0; font-size: 22px; display: flex; align-items: center; gap: 8px; }
+    
+    .account-badge-header {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: var(--theme-badge);
+      color: var(--theme-badge-text);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .top-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .month-selector select { width: auto; font-size: 14px; font-weight: 600; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
+
+    .btn-sync {
+      background: var(--theme-light);
+      border: 1px solid var(--theme-border);
+      color: var(--theme-badge-text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: auto;
+    }
+    .btn-sync:hover { background: #ede9fe; }
+
+    .grid-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .card { background: var(--card); padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
+    .card-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; font-weight: 600; }
+    .card-value { font-size: 19px; font-weight: 700; word-break: break-word; }
+    .card-value.green { color: var(--success); }
+    .card-value.red { color: var(--danger); }
+    .card-value.blue { color: var(--theme-primary); }
+
+    .section {
+      background: var(--card);
+      padding: 18px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      margin-bottom: 20px;
+      border-left: 5px solid var(--theme-primary);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+      width: 100%;
+      overflow: hidden;
+    }
+    
+    .section-title {
+      margin-top: 0;
+      margin-bottom: 14px;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) auto; gap: 10px; align-items: end; }
+    label { font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px; }
+    input, select, button { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+    
+    button.btn-theme {
+      background: var(--theme-primary);
+      color: white;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button.btn-theme:hover { opacity: 0.9; }
+
+    .cat-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .cat-chip { background: var(--theme-light); border: 1px solid var(--theme-border); color: var(--theme-badge-text); padding: 5px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+    .cat-chip span { cursor: pointer; font-weight: bold; color: var(--muted); }
+    .cat-chip span:hover { color: var(--danger); }
+
+    .filters { display: flex; gap: 8px; margin-bottom: 0; flex-wrap: wrap; }
+    .filter-btn { padding: 6px 14px; width: auto; background: #e2e8f0; color: var(--text); border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
+    .filter-btn.active { background: var(--theme-primary); color: white; }
+
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0;
+      padding: 0;
+    }
+
+    table { width: 100%; min-width: 540px; border-collapse: collapse; text-align: left; font-size: 14px; }
+    th { padding: 10px 12px; border-bottom: 2px solid var(--border); color: var(--muted); font-size: 13px; white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .tag { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .tag-income { background: #dcfce7; color: #15803d; }
+    .tag-expense { background: #fee2e2; color: #b91c1c; }
+    .action-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 4px 6px; border-radius: 4px; width: auto; font-weight: 600; }
+    .edit-btn { color: var(--theme-primary); }
+    .edit-btn:hover { text-decoration: underline; }
+    .del-btn { color: var(--danger); margin-left: 6px; }
+    .del-btn:hover { text-decoration: underline; }
+
+    .modal-backdrop { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); justify-content: center; align-items: center; z-index: 999; }
+    .modal-backdrop.active { display: flex; }
+    .modal { background: #fff; width: 100%; max-width: 480px; padding: 24px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border-top: 5px solid var(--theme-primary); margin: 16px; }
+    .modal h3 { margin-top: 0; margin-bottom: 18px; font-size: 18px; }
+    .modal-fields { display: flex; flex-direction: column; gap: 12px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .btn-cancel { background: #e2e8f0; color: var(--text); border: none; font-weight: 600; cursor: pointer; }
+
+    .search-box {
+      position: relative;
+      width: 100%;
+      margin-bottom: 12px;
+    }
+    .search-input {
+      width: 100%;
+      padding: 9px 34px 9px 36px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      background: #fff;
+    }
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      pointer-events: none;
+      font-size: 14px;
+    }
+    .search-clear {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      cursor: pointer;
+      display: none;
+      font-size: 14px;
+      font-weight: bold;
+      padding: 2px 4px;
+    }
+    .search-clear:hover {
+      color: var(--danger);
+    }
+
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header-bar">
+    <h1>
+      Mesačný rozpočet 
+      <span class="account-badge-header">Rodinka</span>
+    </h1>
+    <div class="top-controls">
+      <button class="btn-sync" onclick="loadFromGoogleSheet()" title="Stiahnuť históriu z Google Tabuľky">
+        &#x21bb; Obnoviť z Disku
+      </button>
+      <div class="month-selector">
+        <select id="selected-month" onchange="changeMonth()">
+          <option value="2026-01">Január 2026</option>
+          <option value="2026-02">Február 2026</option>
+          <option value="2026-03">Marec 2026</option>
+          <option value="2026-04">Apríl 2026</option>
+          <option value="2026-05">Máj 2026</option>
+          <option value="2026-06">Jún 2026</option>
+          <option value="2026-07">Júl 2026</option>
+          <option value="2026-08">August 2026</option>
+          <option value="2026-09">September 2026</option>
+          <option value="2026-10">Október 2026</option>
+          <option value="2026-11" selected>November 2026</option>
+          <option value="2026-12">December 2026</option>
+          <option value="2027-01">Január 2027</option>
+          <option value="2027-02">Február 2027</option>
+          <option value="2027-03">Marec 2027</option>
+          <option value="2027-04">Apríl 2027</option>
+          <option value="2027-05">Máj 2027</option>
+          <option value="2027-06">Jún 2027</option>
+          <option value="2027-07">Júl 2027</option>
+          <option value="2027-08">August 2027</option>
+          <option value="2027-09">September 2027</option>
+          <option value="2027-10">Október 2027</option>
+          <option value="2027-11">November 2027</option>
+          <option value="2027-12">December 2027</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-summary">
+    <div class="card">
+      <div class="card-label">Počiatočný zostatok</div>
+      <div class="card-value" id="stat-init">0,00 €</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Celkové príjmy</div>
+      <div class="card-value green" id="stat-income">0,00 €</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Celkové výdavky</div>
+      <div class="card-value red" id="stat-expense">0,00 €</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Aktuálny zostatok</div>
+      <div class="card-value blue" id="stat-balance">0,00 €</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3 class="section-title">
+      <span>Kategórie</span>
+      <span class="account-badge-header">Rodinka</span>
+    </h3>
+    <div>
+      <label>Nová kategória</label>
+      <div style="display: flex; gap: 8px; max-width: 450px;">
+        <input type="text" id="new-cat-input" placeholder="napr. Zdravie">
+        <button class="btn-theme" style="width: auto; padding: 9px 16px; white-space: nowrap;" onclick="addCategory()">+ Pridať</button>
+      </div>
+    </div>
+    <div class="cat-chips" id="cat-chips-list"></div>
+  </div>
+
+  <div class="section">
+    <h3 class="section-title">
+      <span>Pridať nový záznam</span>
+      <span class="account-badge-header">Rodinka</span>
+    </h3>
+    <form id="tx-form" class="form-grid" onsubmit="addRecord(event)">
+      <div>
+        <label>Dátum</label>
+        <input type="date" id="in-date" required>
+      </div>
+      <div>
+        <label>Položka</label>
+        <input type="text" id="in-title" placeholder="napr. Nákup" required>
+      </div>
+      <div>
+        <label>Kategória</label>
+        <select id="in-cat"></select>
+      </div>
+      <div>
+        <label>Povaha</label>
+        <select id="in-nature">
+          <option value="Fixné">Fixné</option>
+          <option value="Variabilné">Variabilné</option>
+        </select>
+      </div>
+      <div>
+        <label>Typ</label>
+        <select id="in-type">
+          <option value="Výdavok">Výdavok</option>
+          <option value="Príjem">Príjem</option>
+        </select>
+      </div>
+      <div>
+        <label>Suma (€)</label>
+        <input type="number" step="0.01" id="in-amount" placeholder="0.00" required>
+      </div>
+      <div>
+        <button class="btn-theme" type="submit">+ Pridať</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+      <div class="filters" id="filters-container"></div>
+      
+      <div style="display: flex; gap: 6px; background: #e2e8f0; padding: 4px; border-radius: 20px;">
+        <button type="button" id="btn-view-table" class="filter-btn active" onclick="switchView('table')">Tabuľka</button>
+        <button type="button" id="btn-view-chart" class="filter-btn" onclick="switchView('chart')">Graf</button>
+      </div>
+    </div>
+
+        <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="tx-search" class="search-input" placeholder="Hľadať v transakciách (názov, kategória, suma, dátum)..." oninput="render()">
+      <span id="tx-search-clear" class="search-clear" onclick="clearSearch()" title="Zrušiť hľadanie">✕</span>
+    </div>
+    <div id="view-table-container" class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Dátum</th>
+            <th>Položka</th>
+            <th>Kategória</th>
+            <th>Povaha</th>
+            <th>Typ</th>
+            <th>Suma</th>
+            <th style="text-align: right;">Akcie</th>
+          </tr>
+        </thead>
+        <tbody id="tx-rows"></tbody>
+      </table>
+    </div>
+
+    <div id="view-chart-container" style="display: none; max-width: 480px; margin: 0 auto; padding: 10px 0;">
+      <canvas id="expensesChart"></canvas>
+      <div id="no-chart-data" style="display: none; text-align: center; color: var(--muted); padding: 30px 0; font-size: 14px;">
+        V tomto mesiaci nie sú žiadne výdavky na zobrazenie v grafe.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="edit-modal">
+  <div class="modal">
+    <h3>Upraviť záznam</h3>
+    <form id="edit-form" onsubmit="saveEditedItem(event)">
+      <input type="hidden" id="edit-id">
+      <div class="modal-fields">
+        <div>
+          <label>Dátum</label>
+          <input type="date" id="edit-date" required>
+        </div>
+        <div>
+          <label>Položka</label>
+          <input type="text" id="edit-title" required>
+        </div>
+        <div>
+          <label>Kategória</label>
+          <select id="edit-cat"></select>
+        </div>
+        <div>
+          <label>Povaha</label>
+          <select id="edit-nature">
+            <option value="Fixné">Fixné</option>
+            <option value="Variabilné">Variabilné</option>
+          </select>
+        </div>
+        <div>
+          <label>Typ</label>
+          <select id="edit-type">
+            <option value="Výdavok">Výdavok</option>
+            <option value="Príjem">Príjem</option>
+          </select>
+        </div>
+        <div>
+          <label>Suma (€)</label>
+          <input type="number" step="0.01" id="edit-amount" required>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeEditModal()">Zrušiť</button>
+        <button class="btn-theme" type="submit" style="width: auto; padding: 9px 20px;">Uložiť zmeny</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // SEM VLOŽÍTE VAŠU URL Z APPS SCRIPTU
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby3oopQUoiGNfguMbTl3wOISPRaGNj2kHxgvuKAQzcCbpKUAr-SzFUyT1ncga2tBmLJ4A/exec";
+
+  // Vždy primárne nastaviť aktuálny reálny kalendárny mesiac
+  const now = new Date();
+  const actualMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  if (document.querySelector(`#selected-month option[value="${actualMonth}"]`)) {
+    document.getElementById('selected-month').value = actualMonth;
+  }
+  let currentMonth = document.getElementById('selected-month').value;
+  let currentFilter = 'all';
+  let activeView = 'table';
+  let expenseChartInstance = null;
+
+  let categories = JSON.parse(localStorage.getItem('rodinka_categories')) || ['Bývanie', 'Potraviny', 'Auto', 'Ostatné'];
+    function parseAmount(val) {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    const cleaned = String(val).replace(/\s/g, '').replace(',', '.').replace(/[^\d.-]/g, '');
+    return parseFloat(cleaned) || 0;
+  }
+
+  function parseDateAndMonth(rawDate) {
+    if (!rawDate) return { date: '', month: '' };
+    const str = String(rawDate).trim();
+    if (str.includes('T')) {
+      const dt = new Date(str);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        return { date: `${y}-${m}-${d}`, month: `${y}-${m}` };
+      }
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return { date: str, month: str.substring(0, 7) };
+    }
+    const dt = new Date(rawDate);
+    if (!isNaN(dt.getTime())) {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const d = String(dt.getDate()).padStart(2, '0');
+      return { date: `${y}-${m}-${d}`, month: `${y}-${m}` };
+    }
+    return { date: str, month: str.substring(0, 7) };
+  }
+
+  let balances = JSON.parse(localStorage.getItem('rodinka_user_balances')) || { '2026-11': 0.74 };
+
+  function getPrevMonth(mStr) {
+    if (!mStr) return '';
+    const parts = mStr.split('-');
+    let y = parseInt(parts[0], 10);
+    let m = parseInt(parts[1], 10);
+    if (m === 1) { y--; m = 12; } else { m--; }
+    return `${y}-${String(m).padStart(2, '0')}`;
+  }
+
+  function getInitialBalance(mStr, visited = new Set()) {
+    if (!mStr || visited.has(mStr)) return 0;
+    visited.add(mStr);
+    
+    // Ak je pre tento mesiac nastavený počiatočný zostatok manuálne
+    if (balances[mStr] !== undefined && balances[mStr] !== null && balances[mStr] !== '') {
+      return parseFloat(balances[mStr]) || 0;
+    }
+
+    // Na budúce mesiace, ktoré ešte kalendárne nenastali, neukazovať zostatok (bude 0,00 €)
+    const nowDt = new Date();
+    const currentCalMonth = `${nowDt.getFullYear()}-${String(nowDt.getMonth() + 1).padStart(2, '0')}`;
+    if (mStr > currentCalMonth) {
+      return 0;
+    }
+
+    // Automatický presun z predchádzajúceho mesiaca (aktivuje sa od 1. dňa nového mesiaca)
+    const prevM = getPrevMonth(mStr);
+    const prevYear = parseInt(prevM.split('-')[0], 10);
+    if (prevYear < 2025) return 0; // limit histórie
+
+    const prevInit = getInitialBalance(prevM, visited);
+    let prevInc = 0;
+    let prevExp = 0;
+    items.forEach(i => {
+      const itemM = i.month || (i.date ? String(i.date).substring(0, 7) : '');
+      if (itemM === prevM) {
+        if (i.type === 'Príjem') prevInc += i.amount;
+        else prevExp += i.amount;
+      }
+    });
+    return prevInit + prevInc - prevExp;
+  }
+
+  function clearSearch() {
+    const input = document.getElementById('tx-search');
+    if (input) {
+      input.value = '';
+      render();
+    }
+  }let items = JSON.parse(localStorage.getItem('rodinka_items')) || [];
+
+  function formatSKDate(dateStr) {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parseInt(parts[2], 10)}.${parseInt(parts[1], 10)}.${parts[0]}`;
+    }
+    return dateStr;
+  }
+
+  function setDefaultDateForMonth() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayMonth = `${y}-${m}`;
+    const todayStr = `${y}-${m}-${d}`;
+
+    if (currentMonth === todayMonth) {
+      document.getElementById('in-date').value = todayStr;
+    } else {
+      document.getElementById('in-date').value = currentMonth + '-01';
+    }
+  }
+
+  function fmt(num) {
+    return (num || 0).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+
+  function changeMonth() {
+    currentMonth = document.getElementById('selected-month').value;
+    setDefaultDateForMonth();
+    updateInitBalanceInput();
+    render();
+  }
+
+  function updateInitBalanceInput() {
+    const input = document.getElementById('init-balance-input');
+    if (!input) return;
+    const isManual = balances[currentMonth] !== undefined && balances[currentMonth] !== null && balances[currentMonth] !== '';
+    const autoVal = getInitialBalance(currentMonth);
+    const nowDt = new Date();
+    const currentCalMonth = `${nowDt.getFullYear()}-${String(nowDt.getMonth() + 1).padStart(2, '0')}`;
+
+    if (isManual) {
+      input.value = balances[currentMonth];
+      input.placeholder = '0.00';
+    } else {
+      input.value = '';
+      if (currentMonth > currentCalMonth) {
+        input.placeholder = '0.00 (aktivuje sa od 1. dňa mesiaca)';
+      } else {
+        input.placeholder = `${autoVal.toFixed(2)} (automaticky)`;
+      }
+    }
+  }
+
+  function saveInitialBalance() {
+    const inputVal = document.getElementById('init-balance-input').value.trim();
+    if (inputVal === '') {
+      // Ak nechá prázdne, zruší manuálny override a prepne na automatický presun
+      delete balances[currentMonth];
+      localStorage.setItem('rodinka_user_balances', JSON.stringify(balances));
+      updateInitBalanceInput();
+      render();
+      alert('Počiatočný zostatok pre tento mesiac bol nastavený na automatický presun.');
+      return;
+    }
+    const val = parseFloat(inputVal);
+    if (!isNaN(val)) {
+      balances[currentMonth] = val;
+      localStorage.setItem('rodinka_user_balances', JSON.stringify(balances));
+      updateInitBalanceInput();
+      render();
+    }
+  }
+
+  function addCategory() {
+    const input = document.getElementById('new-cat-input');
+    const val = input.value.trim();
+    if (val && !categories.includes(val)) {
+      categories.push(val);
+      localStorage.setItem('rodinka_categories', JSON.stringify(categories));
+      input.value = '';
+      updateCategoryUI();
+    }
+  }
+
+  function removeCategory(cat) {
+    if (categories.length <= 1) {
+      alert('Musí zostať aspoň jedna kategória.');
+      return;
+    }
+    categories = categories.filter(c => c !== cat);
+    localStorage.setItem('rodinka_categories', JSON.stringify(categories));
+    updateCategoryUI();
+  }
+
+  function updateCategoryUI() {
+    const selects = [document.getElementById('in-cat'), document.getElementById('edit-cat')];
+    selects.forEach(select => {
+      if (!select) return;
+      select.innerHTML = '';
+      categories.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        select.appendChild(opt);
+      });
+    });
+
+    const chipList = document.getElementById('cat-chips-list');
+    chipList.innerHTML = '';
+    categories.forEach(c => {
+      const chip = document.createElement('div');
+      chip.className = 'cat-chip';
+      chip.innerHTML = `${c} <span onclick="removeCategory('${c}')" title="Odstrániť">&times;</span>`;
+      chipList.appendChild(chip);
+    });
+
+    updateFilters();
+  }
+
+  function updateFilters() {
+    const fc = document.getElementById('filters-container');
+    fc.innerHTML = `
+      <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}" onclick="setFilter('all', this)">Všetko</button>
+      <button class="filter-btn ${currentFilter === 'Príjem' ? 'active' : ''}" onclick="setFilter('Príjem', this)">Len príjmy</button>
+      <button class="filter-btn ${currentFilter === 'Výdavok' ? 'active' : ''}" onclick="setFilter('Výdavok', this)">Len výdavky</button>
+      <button class="filter-btn ${currentFilter === 'Fixné' ? 'active' : ''}" onclick="setFilter('Fixné', this)">Fixné</button>
+      <button class="filter-btn ${currentFilter === 'Variabilné' ? 'active' : ''}" onclick="setFilter('Variabilné', this)">Variabilné</button>
+    `;
+  }
+
+  function setFilter(val, btn) {
+    currentFilter = val;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    render();
+  }
+
+  function switchView(view) {
+    activeView = view;
+    const tableEl = document.getElementById('view-table-container');
+    const chartEl = document.getElementById('view-chart-container');
+    const btnTable = document.getElementById('btn-view-table');
+    const btnChart = document.getElementById('btn-view-chart');
+
+    if (view === 'table') {
+      tableEl.style.display = 'block';
+      chartEl.style.display = 'none';
+      btnTable.classList.add('active');
+      btnChart.classList.remove('active');
+    } else {
+      tableEl.style.display = 'none';
+      chartEl.style.display = 'block';
+      btnTable.classList.remove('active');
+      btnChart.classList.add('active');
+      renderExpensesChart();
+    }
+  }
+
+  function renderExpensesChart() {
+    const monthItems = items.filter(i => (i.month || i.date.substring(0, 7)) === currentMonth && i.type === 'Výdavok');
+    const canvas = document.getElementById('expensesChart');
+    const noDataMsg = document.getElementById('no-chart-data');
+
+    const catTotals = {};
+    monthItems.forEach(i => {
+      catTotals[i.cat] = (catTotals[i.cat] || 0) + i.amount;
+    });
+
+    const labels = Object.keys(catTotals);
+    const dataValues = Object.values(catTotals);
+
+    if (dataValues.length === 0) {
+      canvas.style.display = 'none';
+      noDataMsg.style.display = 'block';
+      if (expenseChartInstance) {
+        expenseChartInstance.destroy();
+        expenseChartInstance = null;
+      }
+      return;
+    }
+
+    canvas.style.display = 'block';
+    noDataMsg.style.display = 'none';
+
+    if (expenseChartInstance) {
+      expenseChartInstance.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+    expenseChartInstance = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: dataValues,
+          backgroundColor: [
+            '#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', 
+            '#10b981', '#ec4899', '#8b5cf6', '#64748b'
+          ],
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 12, padding: 14, font: { size: 12 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const val = context.parsed || 0;
+                return ' ' + context.label + ': ' + val.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 1. ZÁPIS DO GOOGLE TABUĽKY
+  function syncWithGoogleSheet(data) {
+    if (!SCRIPT_URL) return;
+    fetch(SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(data)
+    }).catch(err => console.error("Chyba odosielania:", err));
+  }
+
+  // 2. OBNOVA DÁT Z GOOGLE TABUĽKY
+  async function loadFromGoogleSheet() {
+    if (!SCRIPT_URL) {
+      alert("Najskôr vložte SCRIPT_URL do index.html.");
+      return;
+    }
+    const btn = document.querySelector('.btn-sync');
+    btn.innerText = "Načítavam...";
+    try {
+      const res = await fetch(SCRIPT_URL);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        items = data.map((row, idx) => {
+          const parsed = parseDateAndMonth(row.date);
+          return {
+            id: Date.now() + idx,
+            account: 'Rodinka',
+            date: parsed.date,
+            month: parsed.month,
+            title: row.title,
+            cat: row.cat,
+            nature: row.nature,
+            type: row.type,
+            amount: parseAmount(row.amount)
+          };
+        });
+        localStorage.setItem('rodinka_items', JSON.stringify(items));
+        render();
+        alert("Úspešne načítaných " + items.length + " záznamov z Google Tabuľky!");
+      } else {
+        alert("V tabuľke sa nenašli žiadne záznamy.");
+      }
+    } catch (err) {
+      alert("Chyba pri sťahovaní dát: " + err.message);
+    } finally {
+      btn.innerHTML = "&#x21bb; Obnoviť z Disku";
+    }
+  }
+
+  function addRecord(e) {
+    e.preventDefault();
+    const dateVal = document.getElementById('in-date').value;
+    const itemMonth = dateVal.substring(0, 7);
+
+    const newItem = {
+      id: Date.now(),
+      account: 'Rodinka',
+      month: itemMonth,
+      date: dateVal,
+      title: document.getElementById('in-title').value,
+      cat: document.getElementById('in-cat').value,
+      nature: document.getElementById('in-nature').value,
+      type: document.getElementById('in-type').value,
+      amount: parseFloat(document.getElementById('in-amount').value)
+    };
+
+    items.unshift(newItem);
+    localStorage.setItem('rodinka_items', JSON.stringify(items));
+    document.getElementById('in-title').value = '';
+    document.getElementById('in-amount').value = '';
+    setDefaultDateForMonth();
+
+    if (itemMonth !== currentMonth) {
+      document.getElementById('selected-month').value = itemMonth;
+      currentMonth = itemMonth;
+      }
+    render();
+    syncWithGoogleSheet(newItem);
+  }
+
+  function deleteItem(id) {
+    const itemToDelete = items.find(x => x.id === id);
+    if (!itemToDelete) return;
+
+    if (confirm("Naozaj chcete vymazať tento záznam?")) {
+      if (SCRIPT_URL) {
+        fetch(SCRIPT_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            action: "delete",
+            date: itemToDelete.date,
+            title: itemToDelete.title,
+            amount: itemToDelete.amount
+          })
+        }).catch(err => console.error("Chyba mazania z Disku:", err));
+      }
+
+      items = items.filter(x => x.id !== id);
+      localStorage.setItem('rodinka_items', JSON.stringify(items));
+      render();
+    }
+  }
+
+  function openEditModal(id) {
+    const item = items.find(x => x.id === id);
+    if (!item) return;
+
+    document.getElementById('edit-id').value = item.id;
+    document.getElementById('edit-date').value = item.date;
+    document.getElementById('edit-title').value = item.title;
+    document.getElementById('edit-cat').value = item.cat;
+    document.getElementById('edit-nature').value = item.nature;
+    document.getElementById('edit-type').value = item.type;
+    document.getElementById('edit-amount').value = item.amount;
+
+    document.getElementById('edit-modal').classList.add('active');
+  }
+
+  function closeEditModal() {
+    document.getElementById('edit-modal').classList.remove('active');
+  }
+
+  function saveEditedItem(e) {
+    e.preventDefault();
+    const id = parseInt(document.getElementById('edit-id').value, 10);
+    const dateVal = document.getElementById('edit-date').value;
+    const itemMonth = dateVal.substring(0, 7);
+
+    const index = items.findIndex(x => x.id === id);
+    if (index !== -1) {
+      items[index] = {
+        id: id,
+        account: 'Rodinka',
+        month: itemMonth,
+        date: dateVal,
+        title: document.getElementById('edit-title').value,
+        cat: document.getElementById('edit-cat').value,
+        nature: document.getElementById('edit-nature').value,
+        type: document.getElementById('edit-type').value,
+        amount: parseFloat(document.getElementById('edit-amount').value)
+      };
+
+      localStorage.setItem('rodinka_items', JSON.stringify(items));
+      closeEditModal();
+      render();
+    }
+  }
+
+  function render() {
+    const tbody = document.getElementById('tx-rows');
+    tbody.innerHTML = '';
+
+    const currentInitBalance = getInitialBalance(currentMonth);
+    const monthItems = items.filter(i => (i.month || i.date.substring(0, 7)) === currentMonth);
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    monthItems.forEach(item => {
+      if (item.type === 'Príjem') totalIncome += item.amount;
+      else totalExpense += item.amount;
+    });
+
+    let filtered = monthItems.filter(i => {
+      if (currentFilter === 'all') return true;
+      if (currentFilter === 'Príjem' || currentFilter === 'Výdavok') return i.type === currentFilter;
+      if (currentFilter === 'Fixné' || currentFilter === 'Variabilné') return i.nature === currentFilter;
+      return true;
+    });
+
+    const searchInput = document.getElementById('tx-search');
+    const searchVal = (searchInput?.value || '').toLowerCase().trim();
+    const clearBtn = document.getElementById('tx-search-clear');
+    if (clearBtn) clearBtn.style.display = searchVal ? 'block' : 'none';
+
+    if (searchVal) {
+      filtered = filtered.filter(i => {
+        const t = (i.title || '').toLowerCase();
+        const c = (i.cat || '').toLowerCase();
+        const n = (i.nature || '').toLowerCase();
+        const ty = (i.type || '').toLowerCase();
+        const amt = String(i.amount || '');
+        const d = formatSKDate(i.date).toLowerCase();
+        return t.includes(searchVal) || c.includes(searchVal) || n.includes(searchVal) || ty.includes(searchVal) || amt.includes(searchVal) || d.includes(searchVal);
+      });
+    }
+
+    filtered.forEach(i => {
+      const tr = document.createElement('tr');
+      const isInc = i.type === 'Príjem';
+      tr.innerHTML = `
+        <td>${formatSKDate(i.date)}</td>
+        <td><strong>${i.title}</strong></td>
+        <td>${i.cat}</td>
+        <td>${i.nature}</td>
+        <td><span class="tag ${isInc ? 'tag-income' : 'tag-expense'}">${i.type}</span></td>
+        <td style="font-weight:600; color:${isInc ? 'var(--success)' : 'var(--danger)'}">
+          ${isInc ? '+' : '-'}${fmt(i.amount)}
+        </td>
+        <td style="text-align: right; white-space: nowrap;">
+          <button class="action-btn edit-btn" onclick="openEditModal(${i.id})">Upraviť</button>
+          <button class="action-btn del-btn" onclick="deleteItem(${i.id})">Zmazať</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('stat-init').innerText = fmt(currentInitBalance);
+    document.getElementById('stat-income').innerText = fmt(totalIncome);
+    document.getElementById('stat-expense').innerText = fmt(totalExpense);
+    document.getElementById('stat-balance').innerText = fmt(currentInitBalance + totalIncome - totalExpense);
+
+    if (activeView === 'chart') {
+      renderExpensesChart();
+    }
+  }
+
+  setDefaultDateForMonth();
+  updateCategoryUI();
+  updateInitBalanceInput();
+  render();
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(err => {
+        console.log('SW registration error:', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>

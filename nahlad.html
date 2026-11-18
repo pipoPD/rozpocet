@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Mesačný rozpočet - Prehľad</title>
+  
+  <meta name="theme-color" content="#7c3aed">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest-nahlad.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <style>
+    :root {
+      --bg: #faf7fd;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --success: #16a34a;
+      --danger: #dc2626;
+
+      --theme-primary: #7c3aed;
+      --theme-light: #f5f3ff;
+      --theme-border: #ddd6fe;
+      --theme-badge: #ede9fe;
+      --theme-badge-text: #5b21b6;
+    }
+
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    
+    html, body {
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      padding: 16px 16px calc(24px + env(safe-area-inset-bottom, 0px)) 16px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 950px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+    h1 { margin: 0; font-size: 22px; display: flex; align-items: center; gap: 8px; }
+    
+    .account-badge-header {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: var(--theme-badge);
+      color: var(--theme-badge-text);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .top-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .month-selector select { width: auto; font-size: 14px; font-weight: 600; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
+
+    .btn-sync {
+      background: var(--theme-light);
+      border: 1px solid var(--theme-border);
+      color: var(--theme-badge-text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: auto;
+    }
+    .btn-sync:hover { background: #ede9fe; }
+
+    .grid-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .card { background: var(--card); padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
+    .card-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; font-weight: 600; }
+    .card-value { font-size: 19px; font-weight: 700; word-break: break-word; }
+    .card-value.green { color: var(--success); }
+    .card-value.red { color: var(--danger); }
+    .card-value.blue { color: var(--theme-primary); }
+
+    .section {
+      background: var(--card);
+      padding: 18px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      margin-bottom: 20px;
+      border-left: 5px solid var(--theme-primary);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .filters { display: flex; gap: 8px; margin-bottom: 0; flex-wrap: wrap; }
+    .filter-btn { padding: 6px 14px; width: auto; background: #e2e8f0; color: var(--text); border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; }
+    .filter-btn.active { background: var(--theme-primary); color: white; }
+
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0;
+      padding: 0;
+    }
+
+    table { width: 100%; min-width: 500px; border-collapse: collapse; text-align: left; font-size: 14px; }
+    th { padding: 10px 12px; border-bottom: 2px solid var(--border); color: var(--muted); font-size: 13px; white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .tag { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .tag-income { background: #dcfce7; color: #15803d; }
+    .tag-expense { background: #fee2e2; color: #b91c1c; }
+
+    #status-msg { font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header-bar">
+    <h1>
+      Mesačný rozpočet 
+      <span class="account-badge-header">Prehľad</span>
+    </h1>
+    <div class="top-controls">
+      <span id="status-msg"></span>
+      <button class="btn-sync" onclick="loadFromGoogleSheet()" title="Aktualizovať z tabuľky">
+        &#x21bb; Obnoviť
+      </button>
+      <div class="month-selector">
+        <select id="selected-month" onchange="changeMonth()">
+          <option value="2026-01">Január 2026</option>
+          <option value="2026-02">Február 2026</option>
+          <option value="2026-03">Marec 2026</option>
+          <option value="2026-04">Apríl 2026</option>
+          <option value="2026-05">Máj 2026</option>
+          <option value="2026-06">Jún 2026</option>
+          <option value="2026-07">Júl 2026</option>
+          <option value="2026-08">August 2026</option>
+          <option value="2026-09">September 2026</option>
+          <option value="2026-10">Október 2026</option>
+          <option value="2026-11" selected>November 2026</option>
+          <option value="2026-12">December 2026</option>
+          <option value="2027-01">Január 2027</option>
+          <option value="2027-02">Február 2027</option>
+          <option value="2027-03">Marec 2027</option>
+          <option value="2027-04">Apríl 2027</option>
+          <option value="2027-05">Máj 2027</option>
+          <option value="2027-06">Jún 2027</option>
+          <option value="2027-07">Júl 2027</option>
+          <option value="2027-08">August 2027</option>
+          <option value="2027-09">September 2027</option>
+          <option value="2027-10">Október 2027</option>
+          <option value="2027-11">November 2027</option>
+          <option value="2027-12">December 2027</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-summary">
+    <div class="card">
+      <div class="card-label">Počiatočný zostatok</div>
+      <div class="card-value" id="stat-init">0,00 €</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Celkové príjmy</div>
+      <div class="card-value green" id="stat-income">0,00 €</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Celkové výdavky</div>
+      <div class="card-value red" id="stat-expense">0,00 €</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Aktuálny zostatok</div>
+      <div class="card-value blue" id="stat-balance">0,00 €</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+      <div class="filters" id="filters-container"></div>
+      
+      <div style="display: flex; gap: 6px; background: #e2e8f0; padding: 4px; border-radius: 20px;">
+        <button type="button" id="btn-view-table" class="filter-btn active" onclick="switchView('table')">Tabuľka</button>
+        <button type="button" id="btn-view-chart" class="filter-btn" onclick="switchView('chart')">Graf</button>
+      </div>
+    </div>
+
+    <div id="view-table-container" class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Dátum</th>
+            <th>Položka</th>
+            <th>Kategória</th>
+            <th>Povaha</th>
+            <th>Typ</th>
+            <th>Suma</th>
+          </tr>
+        </thead>
+        <tbody id="tx-rows"></tbody>
+      </table>
+    </div>
+
+    <div id="view-chart-container" style="display: none; max-width: 480px; margin: 0 auto; padding: 10px 0;">
+      <canvas id="expensesChart"></canvas>
+      <div id="no-chart-data" style="display: none; text-align: center; color: var(--muted); padding: 30px 0; font-size: 14px;">
+        V tomto mesiaci nie sú žiadne výdavky na zobrazenie v grafe.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby3oopQUoiGNfguMbTl3wOISPRaGNj2kHxgvuKAQzcCbpKUAr-SzFUyT1ncga2tBmLJ4A/exec";
+
+  // Vždy primárne nastaviť aktuálny reálny kalendárny mesiac
+  const now = new Date();
+  const actualMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  if (document.querySelector(`#selected-month option[value="${actualMonth}"]`)) {
+    document.getElementById('selected-month').value = actualMonth;
+  }
+  let currentMonth = document.getElementById('selected-month').value;
+  let currentFilter = 'all';
+  let activeView = 'table';
+  let expenseChartInstance = null;
+  let items = [];
+  let balances = JSON.parse(localStorage.getItem('rodinka_user_balances')) || { '2026-11': 0.74 };
+  function getPrevMonth(mStr) {
+    if (!mStr) return '';
+    const parts = mStr.split('-');
+    let y = parseInt(parts[0], 10);
+    let m = parseInt(parts[1], 10);
+    if (m === 1) { y--; m = 12; } else { m--; }
+    return `${y}-${String(m).padStart(2, '0')}`;
+  }
+
+  function getInitialBalance(mStr, visited = new Set()) {
+    if (!mStr || visited.has(mStr)) return 0;
+    visited.add(mStr);
+    if (balances[mStr] !== undefined && balances[mStr] !== null && balances[mStr] !== '') {
+      return parseFloat(balances[mStr]) || 0;
+    }
+
+    // Na budúce mesiace, ktoré ešte kalendárne nenastali, neukazovať zostatok (bude 0,00 €)
+    const nowDt = new Date();
+    const currentCalMonth = `${nowDt.getFullYear()}-${String(nowDt.getMonth() + 1).padStart(2, '0')}`;
+    if (mStr > currentCalMonth) {
+      return 0;
+    }
+
+    const prevM = getPrevMonth(mStr);
+    const prevYear = parseInt(prevM.split('-')[0], 10);
+    if (prevYear < 2025) return 0;
+
+    const prevInit = getInitialBalance(prevM, visited);
+    let prevInc = 0;
+    let prevExp = 0;
+    items.forEach(i => {
+      const itemM = i.month || (i.date ? String(i.date).substring(0, 7) : '');
+      if (itemM === prevM) {
+        if (i.type === 'Príjem') prevInc += i.amount;
+        else prevExp += i.amount;
+      }
+    });
+    return prevInit + prevInc - prevExp;
+  }
+
+
+  function parseAmount(val) {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    const cleaned = String(val).replace(/\s/g, '').replace(',', '.').replace(/[^\d.-]/g, '');
+    return parseFloat(cleaned) || 0;
+  }
+
+  function parseDateAndMonth(rawDate) {
+    if (!rawDate) return { date: '', month: '' };
+    const str = String(rawDate).trim();
+    
+    // Ak prichádza ISO formát s časom (napr. 2026-10-31T23:00:00.000Z z Google Sheets)
+    if (str.includes('T')) {
+      const dt = new Date(str);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        return { date: `${y}-${m}-${d}`, month: `${y}-${m}` };
+      }
+    }
+
+    // Ak ide o čistý reťazec YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return { date: str, month: str.substring(0, 7) };
+    }
+
+    const dt = new Date(rawDate);
+    if (!isNaN(dt.getTime())) {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, '0');
+      const d = String(dt.getDate()).padStart(2, '0');
+      return { date: `${y}-${m}-${d}`, month: `${y}-${m}` };
+    }
+    return { date: str, month: str.substring(0, 7) };
+  }
+
+  function formatSKDate(dateStr) {
+    if (!dateStr) return '';
+    const parts = String(dateStr).split('T')[0].split('-');
+    if (parts.length === 3) {
+      return `${parseInt(parts[2], 10)}.${parseInt(parts[1], 10)}.${parts[0]}`;
+    }
+    return dateStr;
+  }
+
+  function fmt(num) {
+    return (num || 0).toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+
+  function changeMonth() {
+    currentMonth = document.getElementById('selected-month').value;
+    render();
+  }
+
+  function updateFilters() {
+    const fc = document.getElementById('filters-container');
+    fc.innerHTML = `
+      <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}" onclick="setFilter('all', this)">Všetko</button>
+      <button class="filter-btn ${currentFilter === 'Príjem' ? 'active' : ''}" onclick="setFilter('Príjem', this)">Len príjmy</button>
+      <button class="filter-btn ${currentFilter === 'Výdavok' ? 'active' : ''}" onclick="setFilter('Výdavok', this)">Len výdavky</button>
+      <button class="filter-btn ${currentFilter === 'Fixné' ? 'active' : ''}" onclick="setFilter('Fixné', this)">Fixné</button>
+      <button class="filter-btn ${currentFilter === 'Variabilné' ? 'active' : ''}" onclick="setFilter('Variabilné', this)">Variabilné</button>
+    `;
+  }
+
+  function setFilter(val, btn) {
+    currentFilter = val;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    render();
+  }
+
+  function switchView(view) {
+    activeView = view;
+    const tableEl = document.getElementById('view-table-container');
+    const chartEl = document.getElementById('view-chart-container');
+    const btnTable = document.getElementById('btn-view-table');
+    const btnChart = document.getElementById('btn-view-chart');
+
+    if (view === 'table') {
+      tableEl.style.display = 'block';
+      chartEl.style.display = 'none';
+      btnTable.classList.add('active');
+      btnChart.classList.remove('active');
+    } else {
+      tableEl.style.display = 'none';
+      chartEl.style.display = 'block';
+      btnTable.classList.remove('active');
+      btnChart.classList.add('active');
+      renderExpensesChart();
+    }
+  }
+
+  function renderExpensesChart() {
+    const monthItems = items.filter(i => (i.month || i.date.substring(0, 7)) === currentMonth && i.type === 'Výdavok');
+    const canvas = document.getElementById('expensesChart');
+    const noDataMsg = document.getElementById('no-chart-data');
+
+    const catTotals = {};
+    monthItems.forEach(i => {
+      catTotals[i.cat] = (catTotals[i.cat] || 0) + i.amount;
+    });
+
+    const labels = Object.keys(catTotals);
+    const dataValues = Object.values(catTotals);
+
+    if (dataValues.length === 0) {
+      canvas.style.display = 'none';
+      noDataMsg.style.display = 'block';
+      if (expenseChartInstance) {
+        expenseChartInstance.destroy();
+        expenseChartInstance = null;
+      }
+      return;
+    }
+
+    canvas.style.display = 'block';
+    noDataMsg.style.display = 'none';
+
+    if (expenseChartInstance) {
+      expenseChartInstance.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+    expenseChartInstance = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: dataValues,
+          backgroundColor: [
+            '#7c3aed', '#06b6d4', '#f59e0b', '#ef4444', 
+            '#10b981', '#ec4899', '#8b5cf6', '#64748b'
+          ],
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { boxWidth: 12, padding: 14, font: { size: 12 } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const val = context.parsed || 0;
+                return ' ' + context.label + ': ' + val.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async function loadFromGoogleSheet() {
+    const status = document.getElementById('status-msg');
+    const btn = document.querySelector('.btn-sync');
+    if (!SCRIPT_URL) {
+      status.innerText = "Chýba SCRIPT_URL";
+      return;
+    }
+    status.innerText = "Aktualizujem...";
+    if (btn) btn.innerText = "Načítavam...";
+    try {
+      const res = await fetch(SCRIPT_URL);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        items = data.map((row, idx) => {
+          const parsed = parseDateAndMonth(row.date);
+          return {
+            id: idx,
+            date: parsed.date,
+            month: parsed.month,
+            title: row.title,
+            cat: row.cat,
+            nature: row.nature,
+            type: row.type,
+            amount: parseAmount(row.amount)
+          };
+        });
+        render();
+        status.innerText = "Aktuálne (" + items.length + ")";
+      }
+    } catch (err) {
+      status.innerText = "Chyba načítania";
+      console.error(err);
+    } finally {
+      if (btn) btn.innerHTML = "&#x21bb; Obnoviť";
+    }
+  }
+
+  function render() {
+    const tbody = document.getElementById('tx-rows');
+    tbody.innerHTML = '';
+
+    const monthItems = items.filter(i => (i.month || i.date.substring(0, 7)) === currentMonth).slice().reverse();
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    monthItems.forEach(item => {
+      if (item.type === 'Príjem') totalIncome += item.amount;
+      else totalExpense += item.amount;
+    });
+
+    const filtered = monthItems.filter(i => {
+      if (currentFilter === 'all') return true;
+      if (currentFilter === 'Príjem' || currentFilter === 'Výdavok') return i.type === currentFilter;
+      if (currentFilter === 'Fixné' || currentFilter === 'Variabilné') return i.nature === currentFilter;
+      return true;
+    });
+
+    filtered.forEach(i => {
+      const tr = document.createElement('tr');
+      const isInc = i.type === 'Príjem';
+      tr.innerHTML = `
+        <td>${formatSKDate(i.date)}</td>
+        <td><strong>${i.title}</strong></td>
+        <td>${i.cat}</td>
+        <td>${i.nature}</td>
+        <td><span class="tag ${isInc ? 'tag-income' : 'tag-expense'}">${i.type}</span></td>
+        <td style="font-weight:600; color:${isInc ? 'var(--success)' : 'var(--danger)'}">
+          ${isInc ? '+' : '-'}${fmt(i.amount)}
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    const currentInitBalance = getInitialBalance(currentMonth);
+    document.getElementById('stat-init').innerText = fmt(currentInitBalance);
+    document.getElementById('stat-income').innerText = fmt(totalIncome);
+    document.getElementById('stat-expense').innerText = fmt(totalExpense);
+    document.getElementById('stat-balance').innerText = fmt(currentInitBalance + totalIncome - totalExpense);
+
+    if (activeView === 'chart') {
+      renderExpensesChart();
+    }
+  }
+
+  updateFilters();
+  loadFromGoogleSheet();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
+  }
+
+</script>
+</body>
+</html>
