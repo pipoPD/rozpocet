@@ -11,6 +11,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="apple-touch-icon" href="icon-512.png">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-db.js?v=1"></script>
   
   <style>
     :root {
@@ -215,8 +219,15 @@
       <span class="account-badge-header">Rodinka</span>
     </h1>
     <div class="top-controls">
-      <button class="btn-sync" onclick="loadFromGoogleSheet()" title="Stiahnuť históriu z Google Tabuľky">
-        &#x21bb; Obnoviť z Disku
+      <span id="fb-status" class="fb-status"></span>
+      <button class="btn-sync" id="btn-import" style="display:none" onclick="importFromSheet()" title="Jednorazovo preniesť záznamy z Google Tabuľky">
+        &#x21e9; Preniesť zo Sheetu
+      </button>
+      <button class="btn-sync" onclick="fbDownloadBackup(items)" title="Stiahnuť všetky záznamy do súboru (Excel)">
+        &#x2b07; Záloha
+      </button>
+      <button class="btn-sync" onclick="if (confirm('Odhlásiť sa?')) fbLogout()" title="Odhlásiť">
+        Odhlásiť
       </button>
       <div class="month-selector">
         <select id="selected-month" onchange="changeMonth()">
@@ -412,7 +423,7 @@
 </div>
 
 <script>
-  // SEM VLOŽÍTE VAŠU URL Z APPS SCRIPTU
+  // Pôvodná Google Tabuľka – používa sa už len na jednorazový prenos dát do Firebase
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby3oopQUoiGNfguMbTl3wOISPRaGNj2kHxgvuKAQzcCbpKUAr-SzFUyT1ncga2tBmLJ4A/exec";
 
   // Vždy primárne nastaviť aktuálny reálny kalendárny mesiac
@@ -427,6 +438,14 @@
   let expenseChartInstance = null;
 
   let categories = JSON.parse(localStorage.getItem('rodinka_categories')) || ['Bývanie', 'Potraviny', 'Auto', 'Ostatné'];
+  let settingsLoaded = false;
+
+  // Uloží kategórie a zostatky do Firebase (a do prehliadača ako rýchlu kópiu)
+  function saveSettings() {
+    localStorage.setItem('rodinka_categories', JSON.stringify(categories));
+    localStorage.setItem('rodinka_user_balances', JSON.stringify(balances));
+    if (settingsLoaded) fbSaveSettings(categories, balances);
+  }
     function parseAmount(val) {
     if (typeof val === 'number') return val;
     if (!val) return 0;
@@ -510,7 +529,7 @@
       input.value = '';
       render();
     }
-  }let items = JSON.parse(localStorage.getItem('rodinka_items')) || [];
+  }let items = JSON.parse(localStorage.getItem('rodinka_items_fb')) || [];
 
   function formatSKDate(dateStr) {
     if (!dateStr) return '';
@@ -573,7 +592,7 @@
     if (inputVal === '') {
       // Ak nechá prázdne, zruší manuálny override a prepne na automatický presun
       delete balances[currentMonth];
-      localStorage.setItem('rodinka_user_balances', JSON.stringify(balances));
+      saveSettings();
       updateInitBalanceInput();
       render();
       alert('Počiatočný zostatok pre tento mesiac bol nastavený na automatický presun.');
@@ -582,7 +601,7 @@
     const val = parseFloat(inputVal);
     if (!isNaN(val)) {
       balances[currentMonth] = val;
-      localStorage.setItem('rodinka_user_balances', JSON.stringify(balances));
+      saveSettings();
       updateInitBalanceInput();
       render();
     }
@@ -593,7 +612,7 @@
     const val = input.value.trim();
     if (val && !categories.includes(val)) {
       categories.push(val);
-      localStorage.setItem('rodinka_categories', JSON.stringify(categories));
+      saveSettings();
       input.value = '';
       updateCategoryUI();
     }
@@ -605,7 +624,7 @@
       return;
     }
     categories = categories.filter(c => c !== cat);
-    localStorage.setItem('rodinka_categories', JSON.stringify(categories));
+    saveSettings();
     updateCategoryUI();
   }
 
@@ -738,53 +757,28 @@
     });
   }
 
-  // 1. ZÁPIS DO GOOGLE TABUĽKY
-  function syncWithGoogleSheet(data) {
-    if (!SCRIPT_URL) return;
-    fetch(SCRIPT_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(data)
-    }).catch(err => console.error("Chyba odosielania:", err));
-  }
-
-  // 2. OBNOVA DÁT Z GOOGLE TABUĽKY
-  async function loadFromGoogleSheet() {
-    if (!SCRIPT_URL) {
-      alert("Najskôr vložte SCRIPT_URL do index.html.");
+  // JEDNORAZOVÝ PRENOS Z GOOGLE TABUĽKY DO FIREBASE
+  async function importFromSheet() {
+    if (items.length > 0) {
+      alert('V databáze už sú záznamy – prenos by vytvoril duplicity.');
       return;
     }
-    const btn = document.querySelector('.btn-sync');
-    btn.innerText = "Načítavam...";
+    if (!confirm('Preniesť všetky záznamy z Google Tabuľky do novej online databázy?')) return;
+    const btn = document.getElementById('btn-import');
+    btn.innerText = 'Prenášam...';
+    btn.disabled = true;
     try {
-      const res = await fetch(SCRIPT_URL);
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        items = data.map((row, idx) => {
-          const parsed = parseDateAndMonth(row.date);
-          return {
-            id: Date.now() + idx,
-            account: 'Rodinka',
-            date: parsed.date,
-            month: parsed.month,
-            title: row.title,
-            cat: row.cat,
-            nature: row.nature,
-            type: row.type,
-            amount: parseAmount(row.amount)
-          };
-        });
-        localStorage.setItem('rodinka_items', JSON.stringify(items));
-        render();
-        alert("Úspešne načítaných " + items.length + " záznamov z Google Tabuľky!");
-      } else {
-        alert("V tabuľke sa nenašli žiadne záznamy.");
-      }
+      const count = await fbImportFromSheet(SCRIPT_URL, parseDateAndMonth, parseAmount);
+      // doplniť kategórie, ktoré sú v prenesených záznamoch
+      items.forEach(i => { if (i.cat && !categories.includes(i.cat)) categories.push(i.cat); });
+      saveSettings();
+      updateCategoryUI();
+      alert('Prenesených ' + count + ' záznamov.');
     } catch (err) {
-      alert("Chyba pri sťahovaní dát: " + err.message);
+      alert('Chyba pri prenose: ' + err.message);
     } finally {
-      btn.innerHTML = "&#x21bb; Obnoviť z Disku";
+      btn.disabled = false;
+      btn.innerHTML = '&#x21e9; Preniesť zo Sheetu';
     }
   }
 
@@ -805,8 +799,6 @@
       amount: parseFloat(document.getElementById('in-amount').value)
     };
 
-    items.unshift(newItem);
-    localStorage.setItem('rodinka_items', JSON.stringify(items));
     document.getElementById('in-title').value = '';
     document.getElementById('in-amount').value = '';
     setDefaultDateForMonth();
@@ -816,35 +808,7 @@
       currentMonth = itemMonth;
       }
     render();
-    syncWithGoogleSheet(newItem);
-  }
-
-  // Úprava v Google Tabuľke = zmazať pôvodný riadok a zapísať upravený.
-  // Najprv sa počká na zmazanie, až potom sa zapíše nový riadok.
-  async function updateInGoogleSheet(oldItem, newItem) {
-    if (!SCRIPT_URL) return;
-    try {
-      await fetch(SCRIPT_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({
-          action: "delete",
-          date: oldItem.date,
-          title: oldItem.title,
-          amount: oldItem.amount
-        })
-      });
-      await fetch(SCRIPT_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(newItem)
-      });
-    } catch (err) {
-      console.error("Chyba úpravy na Disku:", err);
-      alert("Úpravu sa nepodarilo uložiť do Google Tabuľky. Skontroluj pripojenie.");
-    }
+    fbAddItem(newItem);
   }
 
   function deleteItem(id) {
@@ -852,23 +816,7 @@
     if (!itemToDelete) return;
 
     if (confirm("Naozaj chcete vymazať tento záznam?")) {
-      if (SCRIPT_URL) {
-        fetch(SCRIPT_URL, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            action: "delete",
-            date: itemToDelete.date,
-            title: itemToDelete.title,
-            amount: itemToDelete.amount
-          })
-        }).catch(err => console.error("Chyba mazania z Disku:", err));
-      }
-
-      items = items.filter(x => x.id !== id);
-      localStorage.setItem('rodinka_items', JSON.stringify(items));
-      render();
+      fbDeleteItem(id);
     }
   }
 
@@ -893,15 +841,13 @@
 
   function saveEditedItem(e) {
     e.preventDefault();
-    const id = parseInt(document.getElementById('edit-id').value, 10);
+    const id = document.getElementById('edit-id').value;
     const dateVal = document.getElementById('edit-date').value;
     const itemMonth = dateVal.substring(0, 7);
 
     const index = items.findIndex(x => x.id === id);
     if (index !== -1) {
-      const oldItem = items[index];
-      items[index] = {
-        id: id,
+      const updated = {
         account: 'Rodinka',
         month: itemMonth,
         date: dateVal,
@@ -912,10 +858,8 @@
         amount: parseFloat(document.getElementById('edit-amount').value)
       };
 
-      localStorage.setItem('rodinka_items', JSON.stringify(items));
       closeEditModal();
-      render();
-      updateInGoogleSheet(oldItem, items[index]);
+      fbUpdateItem(id, updated);
     }
   }
 
@@ -959,7 +903,7 @@
     }
 
     // Najnovšie položky navrchu (podľa dátumu, pri rovnakom dátume naposledy pridané)
-    filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id - a.id));
+    filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || ((b.ts || 0) - (a.ts || 0)));
 
     filtered.forEach(i => {
       const tr = document.createElement('tr');
@@ -974,8 +918,8 @@
           ${isInc ? '+' : '-'}${fmt(i.amount)}
         </td>
         <td style="text-align: right; white-space: nowrap;">
-          <button class="action-btn edit-btn" onclick="openEditModal(${i.id})">Upraviť</button>
-          <button class="action-btn del-btn" onclick="deleteItem(${i.id})">Zmazať</button>
+          <button class="action-btn edit-btn" onclick="openEditModal('${i.id}')">Upraviť</button>
+          <button class="action-btn del-btn" onclick="deleteItem('${i.id}')">Zmazať</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -995,6 +939,33 @@
   updateCategoryUI();
   updateInitBalanceInput();
   render();
+
+  // Napojenie na Firebase – položky a nastavenia sa aktualizujú automaticky
+  fbStart({
+    onItems(arr) {
+      items = arr;
+      localStorage.setItem('rodinka_items_fb', JSON.stringify(items));
+      document.getElementById('btn-import').style.display = items.length === 0 ? '' : 'none';
+      updateInitBalanceInput();
+      render();
+    },
+    onSettings(data) {
+      if (data) {
+        if (Array.isArray(data.categories) && data.categories.length) categories = data.categories;
+        if (data.balances) balances = data.balances;
+        localStorage.setItem('rodinka_categories', JSON.stringify(categories));
+        localStorage.setItem('rodinka_user_balances', JSON.stringify(balances));
+        updateCategoryUI();
+        updateInitBalanceInput();
+        render();
+        settingsLoaded = true;
+      } else if (!settingsLoaded) {
+        // prvé spustenie – uložiť súčasné kategórie a zostatky do databázy
+        settingsLoaded = true;
+        saveSettings();
+      }
+    }
+  });
 </script>
 
 <script>

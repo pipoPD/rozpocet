@@ -11,6 +11,10 @@
   <link rel="manifest" href="manifest-nahlad.json">
   <link rel="apple-touch-icon" href="icon-192.png">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-db.js?v=1"></script>
   
   <style>
     :root {
@@ -136,9 +140,9 @@
       <span class="account-badge-header">Prehľad</span>
     </h1>
     <div class="top-controls">
-      <span id="status-msg"></span>
-      <button class="btn-sync" onclick="loadFromGoogleSheet()" title="Aktualizovať z tabuľky">
-        &#x21bb; Obnoviť
+      <span id="fb-status" class="fb-status"></span>
+      <button class="btn-sync" onclick="fbDownloadBackup(items)" title="Stiahnuť všetky záznamy do súboru (Excel)">
+        &#x2b07; Záloha
       </button>
       <div class="month-selector">
         <select id="selected-month" onchange="changeMonth()">
@@ -226,7 +230,6 @@
 </div>
 
 <script>
-  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby3oopQUoiGNfguMbTl3wOISPRaGNj2kHxgvuKAQzcCbpKUAr-SzFUyT1ncga2tBmLJ4A/exec";
 
   // Vždy primárne nastaviť aktuálny reálny kalendárny mesiac
   const now = new Date();
@@ -238,7 +241,7 @@
   let currentFilter = 'all';
   let activeView = 'table';
   let expenseChartInstance = null;
-  let items = [];
+  let items = JSON.parse(localStorage.getItem('rodinka_items_fb')) || [];
   let balances = JSON.parse(localStorage.getItem('rodinka_user_balances')) || { '2026-11': 0.74 };
   function getPrevMonth(mStr) {
     if (!mStr) return '';
@@ -440,43 +443,6 @@
     });
   }
 
-  async function loadFromGoogleSheet() {
-    const status = document.getElementById('status-msg');
-    const btn = document.querySelector('.btn-sync');
-    if (!SCRIPT_URL) {
-      status.innerText = "Chýba SCRIPT_URL";
-      return;
-    }
-    status.innerText = "Aktualizujem...";
-    if (btn) btn.innerText = "Načítavam...";
-    try {
-      const res = await fetch(SCRIPT_URL);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        items = data.map((row, idx) => {
-          const parsed = parseDateAndMonth(row.date);
-          return {
-            id: idx,
-            date: parsed.date,
-            month: parsed.month,
-            title: row.title,
-            cat: row.cat,
-            nature: row.nature,
-            type: row.type,
-            amount: parseAmount(row.amount)
-          };
-        });
-        render();
-        status.innerText = "Aktuálne (" + items.length + ")";
-      }
-    } catch (err) {
-      status.innerText = "Chyba načítania";
-      console.error(err);
-    } finally {
-      if (btn) btn.innerHTML = "&#x21bb; Obnoviť";
-    }
-  }
-
   function render() {
     const tbody = document.getElementById('tx-rows');
     tbody.innerHTML = '';
@@ -499,7 +465,7 @@
     });
 
     // Najnovšie položky navrchu (podľa dátumu, pri rovnakom dátume naposledy pridané)
-    filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id - a.id));
+    filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || ((b.ts || 0) - (a.ts || 0)));
 
     filtered.forEach(i => {
       const tr = document.createElement('tr');
@@ -529,7 +495,23 @@
   }
 
   updateFilters();
-  loadFromGoogleSheet();
+  render();
+
+  // Napojenie na Firebase – údaje sa aktualizujú automaticky
+  fbStart({
+    onItems(arr) {
+      items = arr;
+      localStorage.setItem('rodinka_items_fb', JSON.stringify(items));
+      render();
+    },
+    onSettings(data) {
+      if (data && data.balances) {
+        balances = data.balances;
+        localStorage.setItem('rodinka_user_balances', JSON.stringify(balances));
+        render();
+      }
+    }
+  });
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
