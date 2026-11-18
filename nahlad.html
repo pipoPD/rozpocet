@@ -491,12 +491,15 @@
       else totalExpense += item.amount;
     });
 
-    const filtered = monthItems.filter(i => {
+    let filtered = monthItems.filter(i => {
       if (currentFilter === 'all') return true;
       if (currentFilter === 'Príjem' || currentFilter === 'Výdavok') return i.type === currentFilter;
       if (currentFilter === 'Fixné' || currentFilter === 'Variabilné') return i.nature === currentFilter;
       return true;
     });
+
+    // Najnovšie položky navrchu (podľa dátumu, pri rovnakom dátume naposledy pridané)
+    filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id - a.id));
 
     filtered.forEach(i => {
       const tr = document.createElement('tr');

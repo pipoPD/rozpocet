@@ -819,6 +819,34 @@
     syncWithGoogleSheet(newItem);
   }
 
+  // Úprava v Google Tabuľke = zmazať pôvodný riadok a zapísať upravený.
+  // Najprv sa počká na zmazanie, až potom sa zapíše nový riadok.
+  async function updateInGoogleSheet(oldItem, newItem) {
+    if (!SCRIPT_URL) return;
+    try {
+      await fetch(SCRIPT_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: "delete",
+          date: oldItem.date,
+          title: oldItem.title,
+          amount: oldItem.amount
+        })
+      });
+      await fetch(SCRIPT_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(newItem)
+      });
+    } catch (err) {
+      console.error("Chyba úpravy na Disku:", err);
+      alert("Úpravu sa nepodarilo uložiť do Google Tabuľky. Skontroluj pripojenie.");
+    }
+  }
+
   function deleteItem(id) {
     const itemToDelete = items.find(x => x.id === id);
     if (!itemToDelete) return;
@@ -871,6 +899,7 @@
 
     const index = items.findIndex(x => x.id === id);
     if (index !== -1) {
+      const oldItem = items[index];
       items[index] = {
         id: id,
         account: 'Rodinka',
@@ -886,6 +915,7 @@
       localStorage.setItem('rodinka_items', JSON.stringify(items));
       closeEditModal();
       render();
+      updateInGoogleSheet(oldItem, items[index]);
     }
   }
 
@@ -927,6 +957,9 @@
         return t.includes(searchVal) || c.includes(searchVal) || n.includes(searchVal) || ty.includes(searchVal) || amt.includes(searchVal) || d.includes(searchVal);
       });
     }
+
+    // Najnovšie položky navrchu (podľa dátumu, pri rovnakom dátume naposledy pridané)
+    filtered.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.id - a.id));
 
     filtered.forEach(i => {
       const tr = document.createElement('tr');
